@@ -1,54 +1,61 @@
 import Phaser from 'phaser';
 import { CharacterStats } from '@core/stats/CharacterStats';
 import { TextureKeys, AnimationKeys } from '@contracts/assetKeys';
-import { WeaponType, WeaponTypeValue, BalanceConfig } from '@config/balanceConfig';
-import { InputManager } from '../input/InputManager';
+import { InputManager, WEAPONS, WeaponType } from '../input/InputManager';
 
-export interface ShotEventData {
+export interface ShotPayload {
   x: number;
   y: number;
   targetX: number;
   targetY: number;
-  speed: number;
   damage: number;
+  speed: number;
 }
 
 /**
- * Визуальный компонент игрока в мире Phaser (спрайт, физика, состояния).
- * Полностью реализует механики из demo.html:
- *  - Рывок (Dash) на Space с кулдауном и шлейфом
- *  - Переключение оружия: 1 (Рогатка) / 2 (Палка)
- *  - Натяжение рогатки на ПКМ с увеличением урона (1.0x -> 2.5x)
- *  - Блок палкой на ПКМ (снижение скорости на 50% + энергощит)
- *  - Регенерация от зелья (+1 HP/сек в течение 10 сек)
+ * Визуальный компонент и контроллер игрока (Морковка).
+ * Включает полную механику из демо:
+ *  - Рывок (Dash) по пробелу с КД 2.5 сек, шлейфом и ускорением
+ *  - Оружие: Рогатка (1) с натяжением ПКМ (урон 1.0x -> 2.5x) и Палка (2) с блоком ПКМ (-50% скорости, щит)
+ *  - Лечение и регенерация от зелий (+20 HP + 1 HP/сек в течение 10 сек)
+ *  - Отрисовка линии прицеливания и энергетического щита
  * (Зона ответственности: Разработчик Б)
  */
 export class PlayerView extends Phaser.Physics.Arcade.Sprite {
   public stats: CharacterStats;
   private inputManager: InputManager;
 
-  // Оружие
-  private currentWeapon: WeaponTypeValue = WeaponType.SLINGSHOT;
-  private chargeTime: number = 0; // в секундах
-  private isBlocking: boolean = false;
+  // Конфигурация механик
+  public static readonly DASH_SPEED = 820;
+  public static readonly DASH_DURATION = 0.18; // сек
+  public static readonly DASH_COOLDOWN = 2.5; // сек
+  public static readonly MAX_CHARGE_TIME = 1.5; // сек
+  public static readonly MIN_DMG_MULT = 1.0;
+  public static readonly MAX_DMG_MULT = 2.5;
+  public static readonly PROJECTILE_SPEED = 650;
 
-  // Рывок (Dash)
-  private isDashing: boolean = false;
-  private dashDurationTimer: number = 0; // в миллисекундах
-  private dashCooldownTimer: number = 0; // в миллисекундах
+  // Оружие
+  public currentWeapon: WeaponType = WEAPONS.SLINGSHOT;
+  public chargeTime: number = 0;
+  public isBlocking: boolean = false;
+
+  // Рывок
+  public isDashing: boolean = false;
+  public dashDurationTimer: number = 0;
+  public dashCooldownTimer: number = 0;
   private dashVelocity: Phaser.Math.Vector2 = new Phaser.Math.Vector2(0, 0);
 
-  // Регенерация
-  private regenDuration: number = 0; // в секундах
-  private regenTickTimer: number = 0; // в секундах
+  // Регенерация от зелья
+  public regenDuration: number = 0;
+  private regenTickTimer: number = 0;
 
-  // Графика шлейфа, прицела и щита
-  private trailGraphics: Phaser.GameObjects.Graphics;
-  private fxGraphics: Phaser.GameObjects.Graphics;
-  private trails: Array<{ x: number; y: number; alpha: number }> = [];
+  // Визуальные оверлеи
+  private aimLineGraphics: Phaser.GameObjects.Graphics;
+  private shieldGraphics: Phaser.GameObjects.Graphics;
+  private shadowGraphics: Phaser.GameObjects.Graphics;
 
-  // Коллбек на выстрел
-  public onShoot?: (data: ShotEventData) => void;
+  // Очередь на выстрел для сцены
+  public pendingShot: ShotPayload | null = null;
 
   constructor(scene: Phaser.Scene, x: number, y: number, stats: CharacterStats, inputManager: InputManager) {
     super(scene, x, y, TextureKeys.CARROT);
@@ -65,172 +72,139 @@ export class PlayerView extends Phaser.Physics.Arcade.Sprite {
     this.setSize(44, 70);
     this.setOffset(42, 35);
 
-    // Графика для спецэффектов (шлейф рывка, линия прицела, щит блока)
-    this.trailGraphics = scene.add.graphics().setDepth(8);
-    this.fxGraphics = scene.add.graphics().setDepth(12);
+    // Графика тени, линии прицеливания и щита
+    this.shadowGraphics = scene.add.graphics().setDepth(5);
+    this.aimLineGraphics = scene.add.graphics().setDepth(9);
+    this.shieldGraphics = scene.add.graphics().setDepth(11);
   }
 
-  public update(_time?: number, delta?: number): void {
-    const dt = (delta ?? 16.6) / 1000; // секунды
-
-    // 1. Смена оружия
-    if (this.inputManager.isWeapon1Pressed()) this.switchWeapon(WeaponType.SLINGSHOT);
-    if (this.inputManager.isWeapon2Pressed()) this.switchWeapon(WeaponType.STICK);
-
-    // 2. Кулдаун рывка
-    if (this.dashCooldownTimer > 0) {
-      this.dashCooldownTimer = Math.max(0, this.dashCooldownTimer - (delta ?? 16.6));
-    }
-
-    // 3. Регенерация здоровья от зелья
-    if (this.regenDuration > 0) {
-      this.regenDuration = Math.max(0, this.regenDuration - dt);
-      this.regenTickTimer -= dt;
-
-      if (this.regenTickTimer <= 0) {
-        this.stats.heal(BalanceConfig.loot.potionRegenPerSecond);
-        this.regenTickTimer += 1.0;
-      }
-    }
-
-    // 4. Логика оружия по ПКМ
-    this.updateWeapon(dt);
-
-    // 5. Ввод движения и Dash
-    const moveDir = this.inputManager.getMovementVector();
-    if (this.inputManager.consumeDash() && this.canDash()) {
-      this.startDash(moveDir);
-    }
-
-    // 6. Перемещение
-    const speedModifier = this.isBlocking ? BalanceConfig.player.blockSpeedPenalty : 1.0;
-    if (this.isDashing) {
-      this.setVelocity(this.dashVelocity.x, this.dashVelocity.y);
-      this.dashDurationTimer -= (delta ?? 16.6);
-      if (this.dashDurationTimer <= 0) {
-        this.isDashing = false;
-      }
-      this.trails.push({ x: this.x, y: this.y, alpha: 0.6 });
-    } else {
-      this.setVelocity(
-        moveDir.x * this.stats.moveSpeed * speedModifier,
-        moveDir.y * this.stats.moveSpeed * speedModifier
-      );
-    }
-
-    // 7. Обновление шлейфа рывка
-    this.updateTrail(dt);
-
-    // 8. Анимация спрайта Морковки
-    this.updateAnimation(moveDir);
-
-    // 9. Отрисовка прицела рогатки и щита блока
-    this.drawFxGraphics();
+  public heal(amount: number): void {
+    this.stats.currentHp = Math.min(this.stats.maxHp, this.stats.currentHp + amount);
   }
 
-  private updateWeapon(dt: number): void {
-    const pointerPos = this.inputManager.getPointerWorldPosition();
+  public applyPotion(): void {
+    // 1. Мгновенное лечение +20 HP
+    this.heal(20);
 
-    if (this.currentWeapon === WeaponType.SLINGSHOT) {
-      this.isBlocking = false;
-
-      if (this.inputManager.isRmbDown()) {
-        // Натяжение рогатки (удержание ПКМ)
-        const maxChargeSec = BalanceConfig.player.maxChargeTime / 1000;
-        this.chargeTime = Math.min(maxChargeSec, this.chargeTime + dt);
-      } else if (this.inputManager.consumeRmbRelease()) {
-        // Отпускание ПКМ -> выстрел
-        const maxChargeSec = BalanceConfig.player.maxChargeTime / 1000;
-        const ratio = this.chargeTime / maxChargeSec;
-        const mult = BalanceConfig.player.minDmgMult + (BalanceConfig.player.maxDmgMult - BalanceConfig.player.minDmgMult) * ratio;
-        const finalDamage = Math.round(BalanceConfig.player.baseDamage * mult);
-
-        if (this.onShoot) {
-          this.onShoot({
-            x: this.x,
-            y: this.y,
-            targetX: pointerPos.x,
-            targetY: pointerPos.y,
-            speed: BalanceConfig.player.projectileSpeed,
-            damage: finalDamage,
-          });
-        }
-
-        this.chargeTime = 0;
-      }
-    } else if (this.currentWeapon === WeaponType.STICK) {
-      this.chargeTime = 0;
-      // Удержание ПКМ = блок палкой
-      this.isBlocking = this.inputManager.isRmbDown();
-    }
-  }
-
-  public switchWeapon(type: WeaponTypeValue): void {
-    if (this.currentWeapon !== type) {
-      this.currentWeapon = type;
-      this.chargeTime = 0;
-      this.isBlocking = false;
-    }
+    // 2. Сброс/запуск таймера регенерации на 10 сек
+    this.regenDuration = 10.0;
+    this.regenTickTimer = 1.0;
   }
 
   public canDash(): boolean {
     return !this.isDashing && this.dashCooldownTimer <= 0;
   }
 
-  public startDash(moveDir: Phaser.Math.Vector2): void {
+  public startDash(moveDir: Phaser.Math.Vector2, pointerPos: Phaser.Math.Vector2): void {
     this.isDashing = true;
-    this.dashDurationTimer = BalanceConfig.player.dashDuration;
-    this.dashCooldownTimer = BalanceConfig.player.dashCooldown;
+    this.dashDurationTimer = PlayerView.DASH_DURATION;
+    this.dashCooldownTimer = PlayerView.DASH_COOLDOWN;
 
     let dirX = moveDir.x;
     let dirY = moveDir.y;
 
     if (dirX === 0 && dirY === 0) {
-      const pointerPos = this.inputManager.getPointerWorldPosition();
       const angle = Phaser.Math.Angle.Between(this.x, this.y, pointerPos.x, pointerPos.y);
       dirX = Math.cos(angle);
       dirY = Math.sin(angle);
     }
 
-    this.dashVelocity.set(
-      dirX * BalanceConfig.player.dashSpeed,
-      dirY * BalanceConfig.player.dashSpeed
-    );
+    this.dashVelocity.set(dirX * PlayerView.DASH_SPEED, dirY * PlayerView.DASH_SPEED);
   }
 
-  public applyPotion(): void {
-    this.stats.heal(BalanceConfig.loot.potionInstantHeal);
-    this.regenDuration = BalanceConfig.loot.potionRegenDuration;
-    this.regenTickTimer = 1.0;
-  }
+  public update(_time?: number, delta?: number): void {
+    if (!this.active) return;
+    const dt = (delta ?? 16) / 1000;
 
-  private updateTrail(dt: number): void {
-    this.trailGraphics.clear();
-    for (let i = this.trails.length - 1; i >= 0; i--) {
-      const t = this.trails[i];
-      t.alpha -= dt * 3.5;
-      if (t.alpha <= 0) {
-        this.trails.splice(i, 1);
-      } else {
-        this.trailGraphics.fillStyle(0x63b3ed, t.alpha * 0.4);
-        this.trailGraphics.fillCircle(t.x, t.y, BalanceConfig.player.radius * 0.9);
+    const pointerPos = this.inputManager.getPointerWorldPosition();
+
+    // 1. Смена оружия
+    const weaponSwitch = this.inputManager.getSelectedWeapon();
+    if (weaponSwitch !== null && weaponSwitch !== this.currentWeapon) {
+      this.currentWeapon = weaponSwitch;
+      this.chargeTime = 0;
+      this.isBlocking = false;
+    }
+
+    // 2. Кулдаун рывка
+    if (this.dashCooldownTimer > 0) {
+      this.dashCooldownTimer = Math.max(0, this.dashCooldownTimer - dt);
+    }
+
+    // 3. Регенерация (+1 HP в секунду)
+    if (this.regenDuration > 0) {
+      this.regenDuration = Math.max(0, this.regenDuration - dt);
+      this.regenTickTimer -= dt;
+      if (this.regenTickTimer <= 0) {
+        this.heal(1);
+        this.regenTickTimer += 1.0;
       }
     }
+
+    // 4. Оружие по ПКМ
+    this.updateWeapon(dt, pointerPos);
+
+    // 5. Ввод движения и рывок
+    const moveDir = this.inputManager.getMovementVector();
+    if (this.inputManager.consumeDash() && this.canDash()) {
+      this.startDash(moveDir, pointerPos);
+    }
+
+    // 6. Скорость перемещения
+    if (this.isDashing) {
+      this.setVelocity(this.dashVelocity.x, this.dashVelocity.y);
+      this.dashDurationTimer -= dt;
+      if (this.dashDurationTimer <= 0) {
+        this.isDashing = false;
+      }
+      this.spawnGhostTrail();
+    } else {
+      const speedModifier = this.isBlocking ? 0.5 : 1.0;
+      this.setVelocity(
+        moveDir.x * this.stats.moveSpeed * speedModifier,
+        moveDir.y * this.stats.moveSpeed * speedModifier
+      );
+    }
+
+    // 7. Анимация спрайта
+    this.updateAnimations(moveDir, pointerPos);
+
+    // 8. Визуальные эффекты (тень, линия прицела, щит, подсветка)
+    this.renderVisuals(pointerPos);
   }
 
-  private updateAnimation(moveDir: Phaser.Math.Vector2): void {
-    const isMoving = (moveDir.x !== 0 || moveDir.y !== 0) || this.isDashing;
+  private updateWeapon(dt: number, pointerPos: Phaser.Math.Vector2): void {
+    if (this.currentWeapon === WEAPONS.SLINGSHOT) {
+      this.isBlocking = false;
 
-    // Спецэффекты подсветки
-    if (this.isDashing) {
-      this.setTint(0x90cdf4);
-    } else if (this.isBlocking) {
-      this.setTint(0x4299e1);
-    } else if (this.regenDuration > 0) {
-      this.setTint(0x68d391);
-    } else {
-      this.clearTint();
+      if (this.inputManager.rmbDown) {
+        // Натяжение рогатки
+        this.chargeTime = Math.min(PlayerView.MAX_CHARGE_TIME, this.chargeTime + dt);
+      } else if (this.inputManager.consumeRmbRelease()) {
+        // Выстрел снарядом
+        const progress = this.chargeTime / PlayerView.MAX_CHARGE_TIME;
+        const mult = PlayerView.MIN_DMG_MULT + (PlayerView.MAX_DMG_MULT - PlayerView.MIN_DMG_MULT) * progress;
+        const finalDamage = Math.round(this.stats.damage * mult);
+
+        this.pendingShot = {
+          x: this.x,
+          y: this.y,
+          targetX: pointerPos.x,
+          targetY: pointerPos.y,
+          damage: finalDamage,
+          speed: PlayerView.PROJECTILE_SPEED,
+        };
+
+        this.chargeTime = 0;
+      }
+    } else if (this.currentWeapon === WEAPONS.STICK) {
+      this.chargeTime = 0;
+      this.isBlocking = this.inputManager.rmbDown;
     }
+  }
+
+  private updateAnimations(moveDir: Phaser.Math.Vector2, pointerPos: Phaser.Math.Vector2): void {
+    const isMoving = (moveDir.x !== 0 || moveDir.y !== 0) || this.isDashing;
 
     if (isMoving) {
       if (Math.abs(moveDir.x) > Math.abs(moveDir.y)) {
@@ -242,7 +216,6 @@ export class PlayerView extends Phaser.Physics.Arcade.Sprite {
       if (this.anims.isPlaying) {
         this.stop();
       }
-      const pointerPos = this.inputManager.getPointerWorldPosition();
       const dx = pointerPos.x - this.x;
       const dy = pointerPos.y - this.y;
 
@@ -252,65 +225,64 @@ export class PlayerView extends Phaser.Physics.Arcade.Sprite {
         this.setFrame(dy > 0 ? 0 : 8);
       }
     }
+
+    // Тинт состояний
+    if (this.isDashing) {
+      this.setTint(0x90cdf4);
+    } else if (this.isBlocking) {
+      this.setTint(0x63b3ed);
+    } else if (this.regenDuration > 0) {
+      this.setTint(0x68d391);
+    } else {
+      this.clearTint();
+    }
   }
 
-  private drawFxGraphics(): void {
-    this.fxGraphics.clear();
-    const pointerPos = this.inputManager.getPointerWorldPosition();
+  private spawnGhostTrail(): void {
+    const ghost = this.scene.add.sprite(this.x, this.y, this.texture.key, this.frame.name);
+    ghost.setScale(this.scaleX, this.scaleY);
+    ghost.setDepth(this.depth - 1);
+    ghost.setTint(0x63b3ed);
+    ghost.setAlpha(0.6);
 
-    // Линия прицела для Рогатки
-    if (this.currentWeapon === WeaponType.SLINGSHOT) {
-      const maxChargeSec = BalanceConfig.player.maxChargeTime / 1000;
-      const isCharging = this.chargeTime > 0;
-      const color = isCharging ? 0xecc94b : 0xa0aec0;
-      const alpha = isCharging ? 0.8 : 0.25;
+    this.scene.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      duration: 200,
+      onComplete: () => ghost.destroy(),
+    });
+  }
 
-      this.fxGraphics.lineStyle(1.5, color, alpha);
-      this.fxGraphics.lineBetween(this.x, this.y, pointerPos.x, pointerPos.y);
+  private renderVisuals(pointerPos: Phaser.Math.Vector2): void {
+    // Тень под персонажем
+    this.shadowGraphics.clear();
+    this.shadowGraphics.fillStyle(0x000000, 0.45);
+    this.shadowGraphics.fillEllipse(this.x, this.y + 16, 28, 12);
 
-      // Маленький прицельный кружок на курсоре
-      if (isCharging) {
-        const ratio = this.chargeTime / maxChargeSec;
-        this.fxGraphics.lineStyle(2, 0xecc94b, 0.9);
-        this.fxGraphics.strokeCircle(pointerPos.x, pointerPos.y, 8 + ratio * 8);
-      }
+    // Линия прицеливания рогатки
+    this.aimLineGraphics.clear();
+    if (this.currentWeapon === WEAPONS.SLINGSHOT) {
+      const color = this.chargeTime > 0 ? 0xecc94b : 0x718096;
+      const alpha = this.chargeTime > 0 ? 0.8 : 0.3;
+      this.aimLineGraphics.lineStyle(1.5, color, alpha);
+      this.aimLineGraphics.lineBetween(this.x, this.y, pointerPos.x, pointerPos.y);
     }
 
-    // Щит блока для Палки
+    // Энергетический щит палки
+    this.shieldGraphics.clear();
     if (this.isBlocking) {
       const angle = Phaser.Math.Angle.Between(this.x, this.y, pointerPos.x, pointerPos.y);
-      this.fxGraphics.lineStyle(4, 0x63b3ed, 0.85);
-      this.fxGraphics.beginPath();
-      this.fxGraphics.arc(this.x, this.y, BalanceConfig.player.radius + 14, angle - Math.PI / 3, angle + Math.PI / 3);
-      this.fxGraphics.strokePath();
+      this.shieldGraphics.lineStyle(4, 0x63b3ed, 0.9);
+      this.shieldGraphics.beginPath();
+      this.shieldGraphics.arc(this.x, this.y, 30, angle - 0.9, angle + 0.9);
+      this.shieldGraphics.strokePath();
     }
   }
 
-  public override destroy(fromScene?: boolean): void {
-    this.trailGraphics.destroy();
-    this.fxGraphics.destroy();
+  public destroy(fromScene?: boolean): void {
+    this.shadowGraphics.destroy();
+    this.aimLineGraphics.destroy();
+    this.shieldGraphics.destroy();
     super.destroy(fromScene);
-  }
-
-  // Геттеры для HUD
-  public getCurrentWeapon(): WeaponTypeValue {
-    return this.currentWeapon;
-  }
-
-  public getChargeProgress(): number {
-    const maxChargeSec = BalanceConfig.player.maxChargeTime / 1000;
-    return Math.min(1.0, this.chargeTime / maxChargeSec);
-  }
-
-  public isBlockingState(): boolean {
-    return this.isBlocking;
-  }
-
-  public getDashCooldownRemaining(): number {
-    return this.dashCooldownTimer;
-  }
-
-  public getRegenRemaining(): number {
-    return this.regenDuration;
   }
 }

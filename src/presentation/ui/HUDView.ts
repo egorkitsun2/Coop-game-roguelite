@@ -1,195 +1,123 @@
 import Phaser from 'phaser';
 import { eventBus } from '@core/eventBus';
 import { GameEventType, GameEventPayloads } from '@contracts/events';
-import { WeaponType, WeaponTypeValue, BalanceConfig } from '@config/balanceConfig';
+import { WEAPONS, WeaponType } from '../input/InputManager';
+import { PlayerView } from '../entities/PlayerView';
 
 /**
- * Графический интерфейс игрока (HUD), перенесенный из demo.html:
- *  - HP полоска со статусом регенерации (+1/s: Xs)
- *  - Dash полоска с индикатором готовности (READY / Xs)
- *  - Статус текущего оружия и действий (Натяжение %, Урон / Блок щитом)
- *  - Счетчик золота
+ * Графический интерфейс игрока (HUD).
+ * Синхронизирует HTML-разметку (из demo.html) и шину событий GameEventBus:
+ *  - HP шкала и цифры + таймер регенерации (+1/s: X.Xs)
+ *  - Dash шкала перезарядки (READY / X.Xs)
+ *  - Золото
+ *  - Статус выбранного оружия (натяжение рогатки / блок палкой)
  * (Зона ответственности: Разработчик Б)
  */
 export class HUDView {
-  private scene: Phaser.Scene;
+  // DOM элементы интерфейса
+  private hpFillEl: HTMLElement | null = null;
+  private hpValueEl: HTMLElement | null = null;
+  private dashFillEl: HTMLElement | null = null;
+  private dashValueEl: HTMLElement | null = null;
+  private goldValueEl: HTMLElement | null = null;
+  private weaponNameEl: HTMLElement | null = null;
+  private weaponStatusEl: HTMLElement | null = null;
 
-  // HP Bar
-  private hpBarFill!: Phaser.GameObjects.Rectangle;
-  private hpText!: Phaser.GameObjects.Text;
-
-  // Dash Bar
-  private dashBarFill!: Phaser.GameObjects.Rectangle;
-  private dashText!: Phaser.GameObjects.Text;
-
-  // Золото
-  private goldText!: Phaser.GameObjects.Text;
-
-  // Оружие и подсказка действий (в нижнем левом углу, как в demo.html)
-  private weaponTitleText!: Phaser.GameObjects.Text;
-  private weaponActionText!: Phaser.GameObjects.Text;
-
-  constructor(scene: Phaser.Scene) {
-    this.scene = scene;
-    this.create();
+  constructor(_scene: Phaser.Scene) {
+    this.initDomElements();
     this.bindEvents();
   }
 
-  private create(): void {
-    const depth = 50;
-    const { height } = this.scene.scale;
-
-    // --- 1. HP BAR ---
-    this.scene.add.text(20, 16, 'HP', {
-      fontSize: '12px',
-      color: '#fc8181',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(depth);
-
-    this.scene.add.rectangle(70, 18, 180, 14, 0x1a202c)
-      .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x4a5568)
-      .setScrollFactor(0)
-      .setDepth(depth);
-
-    this.hpBarFill = this.scene.add.rectangle(70, 18, 180, 14, 0xe53e3e)
-      .setOrigin(0, 0)
-      .setScrollFactor(0)
-      .setDepth(depth + 1);
-
-    this.hpText = this.scene.add.text(260, 16, '100 / 100', {
-      fontSize: '12px',
-      color: '#e2e8f0',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(depth);
-
-    // --- 2. DASH BAR ---
-    this.scene.add.text(20, 38, 'DASH', {
-      fontSize: '12px',
-      color: '#90cdf4',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(depth);
-
-    this.scene.add.rectangle(70, 40, 180, 14, 0x1a202c)
-      .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x4a5568)
-      .setScrollFactor(0)
-      .setDepth(depth);
-
-    this.dashBarFill = this.scene.add.rectangle(70, 40, 180, 14, 0x3182ce)
-      .setOrigin(0, 0)
-      .setScrollFactor(0)
-      .setDepth(depth + 1);
-
-    this.dashText = this.scene.add.text(260, 38, 'READY', {
-      fontSize: '12px',
-      color: '#90cdf4',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(depth);
-
-    // --- 3. ЗОЛОТО ---
-    this.goldText = this.scene.add.text(20, 64, '🪙 Gold: 0', {
-      fontSize: '15px',
-      color: '#ffd700',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(depth);
-
-    // --- 4. ОРУЖИЕ И ДЕЙСТВИЯ (СНИЗУ СЛЕВА) ---
-    this.weaponTitleText = this.scene.add.text(20, height - 52, 'Оружие: Рогатка (1)', {
-      fontSize: '15px',
-      color: '#f7fafc',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(depth);
-
-    this.weaponActionText = this.scene.add.text(20, height - 28, 'Зажмите ПКМ для натяжения', {
-      fontSize: '13px',
-      color: '#a0aec0',
-    }).setScrollFactor(0).setDepth(depth);
-
-    // --- 5. ПОДСКАЗКА УПРАВЛЕНИЯ (СНИЗУ ПО ЦЕНТРУ) ---
-    const hint = 'WASD: Движение | Space: Рывок | 1/2: Оружие | ПКМ: Действие | C: Враг';
-    this.scene.add.text(this.scene.scale.width / 2, height - 20, hint, {
-      fontSize: '12px',
-      color: '#a0aec0',
-      backgroundColor: '#0f141ccc',
-      padding: { x: 10, y: 4 },
-    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(depth);
+  private initDomElements(): void {
+    this.hpFillEl = document.getElementById('hp-fill');
+    this.hpValueEl = document.getElementById('hp-value');
+    this.dashFillEl = document.getElementById('dash-fill');
+    this.dashValueEl = document.getElementById('dash-value');
+    this.goldValueEl = document.getElementById('gold-value');
+    this.weaponNameEl = document.getElementById('weapon-name');
+    this.weaponStatusEl = document.getElementById('weapon-status');
   }
 
   private bindEvents(): void {
     eventBus.on(GameEventType.GOLD_UPDATED, (payload: GameEventPayloads[GameEventType.GOLD_UPDATED]) => {
-      this.goldText.setText(`🪙 Gold: ${payload.totalGold}`);
-      this.scene.tweens.add({
-        targets: this.goldText,
-        scale: 1.15,
-        duration: 80,
-        yoyo: true,
-      });
+      if (this.goldValueEl) {
+        this.goldValueEl.textContent = `🪙 ${payload.totalGold}`;
+      }
+    });
+
+    eventBus.on(GameEventType.DAMAGE_DEALT, (payload) => {
+      if (payload.targetId === 'player') {
+        this.updateHp(payload.result.targetRemainingHp, 100, 0);
+      }
     });
   }
 
-  public update(
-    currentHp: number,
-    maxHp: number,
-    regenRemaining: number,
-    dashCooldownRemaining: number,
-    weaponType: WeaponTypeValue,
-    chargeProgress: number,
-    isBlocking: boolean
-  ): void {
-    // 1. HP
-    const hpRatio = Math.max(0, Math.min(1, currentHp / maxHp));
-    this.hpBarFill.width = 180 * hpRatio;
+  public updateHp(current: number, max: number, regenDuration: number = 0): void {
+    const ratio = Math.max(0, Math.min(1, current / max));
+    const percent = ratio * 100;
 
-    if (regenRemaining > 0) {
-      this.hpText.setText(`${Math.round(currentHp)} / ${maxHp} (+1/s: ${regenRemaining.toFixed(1)}s)`);
-      this.hpText.setColor('#68d391');
-    } else {
-      this.hpText.setText(`${Math.round(currentHp)} / ${maxHp}`);
-      this.hpText.setColor('#e2e8f0');
+    if (this.hpFillEl) {
+      this.hpFillEl.style.width = `${percent}%`;
     }
 
-    // 2. Dash Cooldown
-    const totalDashCd = BalanceConfig.player.dashCooldown;
-    if (dashCooldownRemaining <= 0) {
-      this.dashBarFill.width = 180;
-      this.dashText.setText('READY');
-      this.dashText.setColor('#90cdf4');
-    } else {
-      const fillRatio = 1 - (dashCooldownRemaining / totalDashCd);
-      this.dashBarFill.width = 180 * Math.max(0, fillRatio);
-      const sec = (dashCooldownRemaining / 1000).toFixed(1);
-      this.dashText.setText(`${sec}s`);
-      this.dashText.setColor('#e2e8f0');
-    }
-
-    // 3. Weapon status
-    if (weaponType === WeaponType.SLINGSHOT) {
-      this.weaponTitleText.setText('Оружие: Рогатка (1)');
-      if (chargeProgress > 0) {
-        const mult = BalanceConfig.player.minDmgMult + (BalanceConfig.player.maxDmgMult - BalanceConfig.player.minDmgMult) * chargeProgress;
-        const dmg = (BalanceConfig.player.baseDamage * mult).toFixed(1);
-        this.weaponActionText.setText(`Натяжение: ${Math.round(chargeProgress * 100)}% (Урон: ${dmg})`);
-        this.weaponActionText.setColor('#ecc94b');
+    if (this.hpValueEl) {
+      let regenText = '';
+      if (regenDuration > 0) {
+        regenText = ` (+1/s: ${regenDuration.toFixed(1)}s)`;
+        this.hpValueEl.style.color = '#68d391';
       } else {
-        this.weaponActionText.setText('Зажмите ПКМ для натяжения (стреляйте по ящикам!)');
-        this.weaponActionText.setColor('#a0aec0');
+        this.hpValueEl.style.color = '#e2e8f0';
       }
-    } else {
-      this.weaponTitleText.setText('Оружие: Палка (2)');
-      if (isBlocking) {
-        this.weaponActionText.setText('🛡️ БЛОК АКТИВЕН (скорость -50%)');
-        this.weaponActionText.setColor('#63b3ed');
-      } else {
-        this.weaponActionText.setText('Удерживайте ПКМ для блока щитом');
-        this.weaponActionText.setColor('#a0aec0');
-      }
+      this.hpValueEl.textContent = `${Math.round(current)} / ${max}${regenText}`;
     }
   }
 
-  public updateHp(current: number, max: number): void {
-    const ratio = Math.max(0, Math.min(1, current / max));
-    this.hpBarFill.width = 180 * ratio;
-    this.hpText.setText(`${Math.round(current)} / ${max}`);
+  public updateDash(cooldownRemaining: number, maxCooldown: number): void {
+    if (!this.dashFillEl || !this.dashValueEl) return;
+
+    if (cooldownRemaining <= 0) {
+      this.dashFillEl.style.width = '100%';
+      this.dashValueEl.textContent = 'READY';
+      this.dashValueEl.style.color = '#90cdf4';
+    } else {
+      const progress = ((maxCooldown - cooldownRemaining) / maxCooldown) * 100;
+      this.dashFillEl.style.width = `${progress}%`;
+      this.dashValueEl.textContent = `${cooldownRemaining.toFixed(1)}s`;
+      this.dashValueEl.style.color = '#e2e8f0';
+    }
+  }
+
+  public updateWeaponStatus(
+    weapon: WeaponType,
+    chargeTime: number,
+    maxChargeTime: number,
+    baseDamage: number,
+    isBlocking: boolean
+  ): void {
+    if (!this.weaponNameEl || !this.weaponStatusEl) return;
+
+    const weaponName = weapon === WEAPONS.SLINGSHOT ? 'Рогатка (1)' : 'Палка (2)';
+    this.weaponNameEl.textContent = `Оружие: ${weaponName}`;
+
+    if (weapon === WEAPONS.SLINGSHOT) {
+      if (chargeTime > 0) {
+        const ratio = chargeTime / maxChargeTime;
+        const mult = PlayerView.MIN_DMG_MULT + (PlayerView.MAX_DMG_MULT - PlayerView.MIN_DMG_MULT) * ratio;
+        const dmg = (baseDamage * mult).toFixed(1);
+        this.weaponStatusEl.textContent = `Натяжение: ${Math.round(ratio * 100)}% (Урон: ${dmg})`;
+        this.weaponStatusEl.style.color = '#ecc94b';
+      } else {
+        this.weaponStatusEl.textContent = 'Зажмите ПКМ для натяжения (стреляйте по ящикам!)';
+        this.weaponStatusEl.style.color = '#a0aec0';
+      }
+    } else {
+      if (isBlocking) {
+        this.weaponStatusEl.textContent = '🛡️ БЛОК АКТИВЕН (-50% скорости, защита)';
+        this.weaponStatusEl.style.color = '#63b3ed';
+      } else {
+        this.weaponStatusEl.textContent = 'Удерживайте ПКМ для блока';
+        this.weaponStatusEl.style.color = '#a0aec0';
+      }
+    }
   }
 }

@@ -16,11 +16,6 @@ export enum GameEventType {
   LOOT_DROPPED = 'LOOT_DROPPED',
   UPGRADE_PURCHASED = 'UPGRADE_PURCHASED',
 
-  // Механики из demo (ящики, зелья, оружие)
-  POTION_COLLECTED = 'POTION_COLLECTED',
-  CRATE_DESTROYED = 'CRATE_DESTROYED',
-  WEAPON_CHANGED = 'WEAPON_CHANGED',
-
   // Стейт игры
   GAME_OVER = 'GAME_OVER',
   RUN_STARTED = 'RUN_STARTED',
@@ -58,21 +53,6 @@ export interface GameEventPayloads {
   [GameEventType.UPGRADE_PURCHASED]: {
     upgradeId: string;
     newLevel: number;
-  };
-  [GameEventType.POTION_COLLECTED]: {
-    healAmount: number;
-    regenDuration: number;
-    x: number;
-    y: number;
-  };
-  [GameEventType.CRATE_DESTROYED]: {
-    crateId: string;
-    x: number;
-    y: number;
-    droppedPotion: boolean;
-  };
-  [GameEventType.WEAPON_CHANGED]: {
-    weaponType: number;
   };
   [GameEventType.GAME_OVER]: {
     score: number;

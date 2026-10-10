@@ -1,36 +1,193 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Coop Roguelite Game</title>
+    <title>2D Top-Down Roguelite (Phaser 3)</title>
     <style>
       * {
+        box-sizing: border-box;
         margin: 0;
         padding: 0;
-        box-sizing: border-box;
-      }
-      body {
-        background: #0f0f14;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        overflow: hidden;
         user-select: none;
       }
-      #game-container {
+      body {
+        background: radial-gradient(circle at center, #1a202c, #0d1117);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: #f7fafc;
+        min-height: 100vh;
         display: flex;
-        justify-content: center;
+        flex-direction: column;
         align-items: center;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
-        border-radius: 8px;
+        justify-content: center;
         overflow: hidden;
+      }
+      #game-wrapper {
+        position: relative;
+        width: 960px;
+        height: 540px;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 255, 255, 0.08);
+        background: #0f141c;
+      }
+      #game-container {
+        width: 100%;
+        height: 100%;
+      }
+      #game-container canvas {
+        display: block;
+      }
+      .hud {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+        z-index: 20;
+      }
+      .bar-container {
+        background: rgba(15, 20, 28, 0.75);
+        backdrop-filter: blur(8px);
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .bar-label {
+        font-size: 13px;
+        font-weight: 700;
+        width: 70px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      }
+      .bar-track {
+        width: 180px;
+        height: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        overflow: hidden;
+        position: relative;
+      }
+      .bar-fill {
+        height: 100%;
+        width: 100%;
+        border-radius: 6px;
+        transition: width 0.05s linear;
+      }
+      #hp-fill {
+        background: linear-gradient(90deg, #e53e3e, #f56565);
+        box-shadow: 0 0 8px rgba(229, 62, 62, 0.6);
+      }
+      #dash-fill {
+        background: linear-gradient(90deg, #3182ce, #63b3ed);
+        box-shadow: 0 0 8px rgba(99, 179, 237, 0.6);
+      }
+      .bar-text {
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 60px;
+        text-align: right;
+        color: #e2e8f0;
+        font-variant-numeric: tabular-nums;
+      }
+      .weapon-hud {
+        position: absolute;
+        bottom: 16px;
+        left: 16px;
+        pointer-events: none;
+        z-index: 20;
+        background: rgba(15, 20, 28, 0.75);
+        backdrop-filter: blur(8px);
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      #weapon-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: #f7fafc;
+      }
+      #weapon-status {
+        font-size: 12px;
+        color: #a0aec0;
+        margin-top: 2px;
+      }
+      .controls-hint {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 20, 28, 0.8);
+        backdrop-filter: blur(8px);
+        padding: 8px 20px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 13px;
+        color: #a0aec0;
+        pointer-events: none;
+        white-space: nowrap;
+        z-index: 20;
+      }
+      kbd {
+        background: #2d3748;
+        color: #edf2f7;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-family: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.2);
       }
     </style>
   </head>
   <body>
-    <div id="game-container"></div>
+    <div id="game-wrapper">
+      <div id="game-container"></div>
+
+      <!-- Игровой интерфейс (HUD из демо) -->
+      <div class="hud" id="main-hud">
+        <div class="bar-container">
+          <span class="bar-label" style="color: #fc8181;">HP</span>
+          <div class="bar-track">
+            <div id="hp-fill" class="bar-fill" style="width: 100%;"></div>
+          </div>
+          <span id="hp-value" class="bar-text">100 / 100</span>
+        </div>
+
+        <div class="bar-container">
+          <span class="bar-label" style="color: #90cdf4;">Dash</span>
+          <div class="bar-track">
+            <div id="dash-fill" class="bar-fill" style="width: 100%;"></div>
+          </div>
+          <span id="dash-value" class="bar-text">READY</span>
+        </div>
+
+        <div class="bar-container">
+          <span class="bar-label" style="color: #f6e05e;">Золото</span>
+          <span id="gold-value" class="bar-text" style="text-align: left; color: #ffd700;">🪙 0</span>
+        </div>
+      </div>
+
+      <!-- Статус оружия -->
+      <div class="weapon-hud" id="weapon-hud">
+        <div id="weapon-name">Оружие: Рогатка (1)</div>
+        <div id="weapon-status">Зажмите ПКМ для натяжения</div>
+      </div>
+
+      <!-- Подсказка по управлению -->
+      <div class="controls-hint">
+        Движение: <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> &nbsp;|&nbsp; 
+        Рывок: <kbd>Space</kbd> &nbsp;|&nbsp; 
+        Оружие: <kbd>1</kbd> Рогатка / <kbd>2</kbd> Палка &nbsp;|&nbsp; 
+        Действие: <kbd>ПКМ</kbd> (Натянуть / Блок) &nbsp;|&nbsp;
+        Враг: <kbd>C</kbd> Призвать гусеницу
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

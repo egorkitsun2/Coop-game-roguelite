@@ -1,121 +1,130 @@
 import Phaser from 'phaser';
 
+export const WEAPONS = {
+  SLINGSHOT: 0, // Рогатка (Дальний бой)
+  STICK: 1,     // Палка (Ближний бой)
+} as const;
+
+export type WeaponType = typeof WEAPONS[keyof typeof WEAPONS];
+
 /**
- * Менеджер пользовательского ввода (WASD + Мышь + ПКМ + Dash + смена оружия).
- * Перенесено из demo.html:
- *  - Блокировка контекстного меню браузера на ПКМ
- *  - Отслеживание удержания и отпускания ПКМ (натяжение рогатки / блок палкой)
- *  - Space — Dash (рывок)
- *  - 1 / 2 — переключение оружия
- *  - C — вызов тестовой гусеницы
+ * Менеджер пользовательского ввода:
+ *  - Движение WASD (с поддержкой русской раскладки ЦФЫВ)
+ *  - Рывок по Space
+ *  - Выбор оружия клавишами 1 и 2
+ *  - ПКМ (натяжение рогатки / блок палкой) с блокировкой контекстного меню
+ *  - Спавн гусеницы по клавише C (для тестов)
  * (Зона ответственности: Разработчик Б)
  */
 export class InputManager {
-  private keys: {
-    w: Phaser.Input.Keyboard.Key;
-    a: Phaser.Input.Keyboard.Key;
-    s: Phaser.Input.Keyboard.Key;
-    d: Phaser.Input.Keyboard.Key;
-    space: Phaser.Input.Keyboard.Key;
-    digit1: Phaser.Input.Keyboard.Key;
-    digit2: Phaser.Input.Keyboard.Key;
-    c: Phaser.Input.Keyboard.Key;
-  };
-
   private scene: Phaser.Scene;
-  private dashRequested: boolean = false;
-  private spawnEnemyRequested: boolean = false;
-  private rmbDown: boolean = false;
-  private rmbReleased: boolean = false;
+
+  // Клавиши
+  private keyW!: Phaser.Input.Keyboard.Key;
+  private keyA!: Phaser.Input.Keyboard.Key;
+  private keyS!: Phaser.Input.Keyboard.Key;
+  private keyD!: Phaser.Input.Keyboard.Key;
+  private key1!: Phaser.Input.Keyboard.Key;
+  private key2!: Phaser.Input.Keyboard.Key;
+  private keySpace!: Phaser.Input.Keyboard.Key;
+  private keyC!: Phaser.Input.Keyboard.Key;
+
+  // Поддержка русской раскладки через сырой Set
+  private pressedCodes: Set<string> = new Set();
+
+  // Состояние мыши (ПКМ)
+  public rmbDown: boolean = false;
+  public rmbReleased: boolean = false;
+  public dashRequested: boolean = false;
+  public spawnEnemyRequested: boolean = false;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    const keyboard = scene.input.keyboard!;
+    const keyboard = scene.input.keyboard;
 
-    this.keys = {
-      w: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-      a: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-      s: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-      d: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-      space: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
-      digit1: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE),
-      digit2: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO),
-      c: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
-    };
+    if (keyboard) {
+      this.keyW = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+      this.keyA = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+      this.keyS = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+      this.keyD = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+      this.key1 = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE);
+      this.key2 = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO);
+      this.keySpace = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      this.keyC = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C);
+    }
 
-    // Отключение контекстного меню браузера при клике ПКМ
-    const canvas = scene.game.canvas;
-    canvas.addEventListener('contextmenu', (e: MouseEvent) => {
-      e.preventDefault();
-    });
+    // Слушатели для контекстного меню и правой кнопки мыши
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Обработка мыши (ПКМ)
-    scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.rightButtonDown()) {
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 2) {
+        e.preventDefault();
         this.rmbDown = true;
       }
     });
 
-    scene.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.button === 2) {
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 2) {
+        e.preventDefault();
         this.rmbDown = false;
         this.rmbReleased = true;
       }
     });
 
-    // Space для Dash
-    this.keys.space.on('down', () => {
-      this.dashRequested = true;
+    window.addEventListener('keydown', (e) => {
+      this.pressedCodes.add(e.code);
+      if (e.code === 'Space') {
+        this.dashRequested = true;
+      }
+      if (e.code === 'KeyC') {
+        this.spawnEnemyRequested = true;
+      }
     });
 
-    // C для спавна гусеницы
-    this.keys.c.on('down', () => {
-      this.spawnEnemyRequested = true;
+    window.addEventListener('keyup', (e) => {
+      this.pressedCodes.delete(e.code);
     });
   }
 
   public getMovementVector(): Phaser.Math.Vector2 {
-    const vector = new Phaser.Math.Vector2(0, 0);
+    let dx = 0;
+    let dy = 0;
 
-    if (this.keys.a.isDown) vector.x -= 1;
-    if (this.keys.d.isDown) vector.x += 1;
-    if (this.keys.w.isDown) vector.y -= 1;
-    if (this.keys.s.isDown) vector.y += 1;
+    // Поддержка английской и русской раскладок
+    if (this.keyW?.isDown || this.pressedCodes.has('KeyW') || this.pressedCodes.has('KeyЦ')) dy -= 1;
+    if (this.keyS?.isDown || this.pressedCodes.has('KeyS') || this.pressedCodes.has('KeyЫ')) dy += 1;
+    if (this.keyA?.isDown || this.pressedCodes.has('KeyA') || this.pressedCodes.has('KeyФ')) dx -= 1;
+    if (this.keyD?.isDown || this.pressedCodes.has('KeyD') || this.pressedCodes.has('KeyВ')) dx += 1;
 
+    const vector = new Phaser.Math.Vector2(dx, dy);
     if (vector.lengthSq() > 0) {
       vector.normalize();
     }
     return vector;
   }
 
+  public getSelectedWeapon(): WeaponType | null {
+    if (this.key1?.isDown || this.pressedCodes.has('Digit1')) return WEAPONS.SLINGSHOT;
+    if (this.key2?.isDown || this.pressedCodes.has('Digit2')) return WEAPONS.STICK;
+    return null;
+  }
+
   public consumeDash(): boolean {
-    const requested = this.dashRequested;
+    const req = this.dashRequested || Phaser.Input.Keyboard.JustDown(this.keySpace);
     this.dashRequested = false;
-    return requested;
-  }
-
-  public isRmbDown(): boolean {
-    return this.rmbDown;
-  }
-
-  public consumeRmbRelease(): boolean {
-    const released = this.rmbReleased;
-    this.rmbReleased = false;
-    return released;
-  }
-
-  public isWeapon1Pressed(): boolean {
-    return Phaser.Input.Keyboard.JustDown(this.keys.digit1);
-  }
-
-  public isWeapon2Pressed(): boolean {
-    return Phaser.Input.Keyboard.JustDown(this.keys.digit2);
+    return req;
   }
 
   public consumeSpawnEnemy(): boolean {
-    const requested = this.spawnEnemyRequested;
+    const req = this.spawnEnemyRequested || Phaser.Input.Keyboard.JustDown(this.keyC);
     this.spawnEnemyRequested = false;
-    return requested;
+    return req;
+  }
+
+  public consumeRmbRelease(): boolean {
+    const rel = this.rmbReleased;
+    this.rmbReleased = false;
+    return rel;
   }
 
   public getPointerWorldPosition(): Phaser.Math.Vector2 {

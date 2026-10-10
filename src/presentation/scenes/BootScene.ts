@@ -30,7 +30,7 @@ export class BootScene extends Phaser.Scene {
   public create(): void {
     this.createCaterpillarAnimations();
     this.createCarrotAnimations();
-    this.scene.start(SceneKeys.MAIN_MENU);
+    this.scene.start(SceneKeys.GAME);
   }
 
   private createCarrotAnimations(): void {
@@ -105,36 +105,32 @@ export class BootScene extends Phaser.Scene {
     enemyGraphics.fillRect(0, 0, 32, 32);
     enemyGraphics.generateTexture(TextureKeys.ENEMY_BASIC, 32, 32);
 
-    // Снаряд (Золотой сияющий круг из demo.html)
+    // Снаряд (Желтый круг)
     const projGraphics = this.make.graphics({ x: 0, y: 0 });
-    projGraphics.fillStyle(0xd69e2e, 0.4);
-    projGraphics.fillCircle(10, 10, 10);
-    projGraphics.fillStyle(0xecc94b, 1);
-    projGraphics.fillCircle(10, 10, 6);
-    projGraphics.generateTexture(TextureKeys.PROJECTILE, 20, 20);
+    projGraphics.fillStyle(0xf6e05e, 1);
+    projGraphics.fillCircle(8, 8, 8);
+    projGraphics.generateTexture(TextureKeys.PROJECTILE, 16, 16);
 
-    // Ящик (Деревянный ящик с диагональным крестом из demo.html)
+    // Разрушаемый ящик (Коричневый с окантовкой и крестом)
     const crateGraphics = this.make.graphics({ x: 0, y: 0 });
     crateGraphics.fillStyle(0x8b5a2b, 1);
-    crateGraphics.fillRect(2, 2, 28, 28);
+    crateGraphics.fillRect(0, 0, 28, 28);
     crateGraphics.lineStyle(2, 0x5c3a1e, 1);
-    crateGraphics.strokeRect(2, 2, 28, 28);
+    crateGraphics.strokeRect(0, 0, 28, 28);
     crateGraphics.beginPath();
-    crateGraphics.moveTo(2, 2);
-    crateGraphics.lineTo(30, 30);
-    crateGraphics.moveTo(30, 2);
-    crateGraphics.lineTo(2, 30);
+    crateGraphics.moveTo(0, 0);
+    crateGraphics.lineTo(28, 28);
+    crateGraphics.moveTo(28, 0);
+    crateGraphics.lineTo(0, 28);
     crateGraphics.strokePath();
-    crateGraphics.generateTexture(TextureKeys.CRATE, 32, 32);
+    crateGraphics.generateTexture(TextureKeys.CRATE, 28, 28);
 
-    // Зелье лечения (Красная склянка с горлышком и сиянием из demo.html)
-    const potGraphics = this.make.graphics({ x: 0, y: 0 });
-    potGraphics.fillStyle(0xe53e3e, 0.35);
-    potGraphics.fillCircle(14, 16, 12);
-    potGraphics.fillStyle(0xe53e3e, 1);
-    potGraphics.fillCircle(14, 16, 8);
-    potGraphics.fillStyle(0xcbd5e0, 1);
-    potGraphics.fillRect(11, 4, 6, 6);
-    potGraphics.generateTexture(TextureKeys.POTION, 28, 30);
+    // Зелье лечения (Красная колба со светлым горлышком)
+    const potionGraphics = this.make.graphics({ x: 0, y: 0 });
+    potionGraphics.fillStyle(0xe53e3e, 1);
+    potionGraphics.fillCircle(12, 14, 8);
+    potionGraphics.fillStyle(0xcbd5e0, 1);
+    potionGraphics.fillRect(9, 2, 6, 5);
+    potionGraphics.generateTexture(TextureKeys.POTION, 24, 24);
   }
 }

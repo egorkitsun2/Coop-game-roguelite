@@ -1,38 +1,19 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '@contracts/assetKeys';
-import { BalanceConfig } from '@config/balanceConfig';
 
 /**
- * Разрушаемый ящик (Crate) из demo.html.
- * При разрушении имеет 15% шанс заспавнить лечебное зелье.
+ * Разрушаемый ящик на арене.
+ * При разрушении снарядом с шансом 15% выпадает Зелье Лечения (Potion).
  * (Зона ответственности: Разработчик Б)
  */
 export class CrateView extends Phaser.Physics.Arcade.Sprite {
-  public id: string;
-  public hp: number = BalanceConfig.loot.crateHp;
-
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, TextureKeys.CRATE);
 
-    this.id = `crate_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-
     scene.add.existing(this);
-    scene.physics.add.existing(this);
+    scene.physics.add.existing(this, true); // true = static body
 
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    if (body) {
-      body.setImmovable(true);
-      this.setSize(28, 28);
-    }
-
-    this.setDepth(7);
-  }
-
-  public takeDamage(amount: number = 1): boolean {
-    this.hp -= amount;
-    if (this.hp <= 0) {
-      return true; // Разрушен
-    }
-    return false;
+    this.setDepth(6);
+    this.setSize(28, 28);
   }
 }

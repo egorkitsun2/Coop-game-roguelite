@@ -1,17 +1,16 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '@contracts/assetKeys';
-import { BalanceConfig } from '@config/balanceConfig';
 
 /**
  * Визуальный компонент снаряда (камень из рогатки).
- * Поддерживает урон с учетом натяжения рогатки и время жизни из demo.html.
+ * Летит со скоростью 650 пикс/сек, наносит урон с учетом натяжения рогатки.
  * (Зона ответственности: Разработчик Б)
  */
 export class ProjectileView extends Phaser.Physics.Arcade.Sprite {
-  private speed: number = BalanceConfig.player.projectileSpeed;
+  public damage: number = 5;
+  private speed: number = 650;
   private maxLifeTime: number = 2000; // 2 секунды время жизни
   private spawnTime: number = 0;
-  public damage: number = BalanceConfig.player.baseDamage;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, TextureKeys.PROJECTILE);
@@ -24,10 +23,10 @@ export class ProjectileView extends Phaser.Physics.Arcade.Sprite {
   }
 
   public fire(targetX: number, targetY: number, speed?: number, damage?: number): void {
-    this.spawnTime = this.scene.time.now;
     if (speed !== undefined) this.speed = speed;
     if (damage !== undefined) this.damage = damage;
 
+    this.spawnTime = this.scene.time.now;
     this.setActive(true);
     this.setVisible(true);
 
