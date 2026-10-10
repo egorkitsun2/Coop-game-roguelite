@@ -21,8 +21,8 @@ export class HUDView {
 
   private create(): void {
     // HP Bar
-    this.hpBarBg = this.scene.add.rectangle(20, 20, 200, 20, 0x333333).setOrigin(0, 0).setScrollFactor(0);
-    this.hpBarFill = this.scene.add.rectangle(20, 20, 200, 20, 0xe53e3e).setOrigin(0, 0).setScrollFactor(0);
+    this.hpBarBg = this.scene.add.rectangle(20, 20, 200, 20, 0x333333).setOrigin(0, 0).setScrollFactor(0).setDepth(50);
+    this.hpBarFill = this.scene.add.rectangle(20, 20, 200, 20, 0xe53e3e).setOrigin(0, 0).setScrollFactor(0).setDepth(51);
 
     // Золото
     this.goldText = this.scene.add.text(20, 50, '🪙 Gold: 0', {
@@ -55,6 +55,6 @@ export class HUDView {
 
   public updateHp(current: number, max: number): void {
     const ratio = Math.max(0, current / max);
-    this.hpBarFill.width = 200 * ratio;
+    this.hpBarFill.width = this.hpBarBg.width * ratio;
   }
 }

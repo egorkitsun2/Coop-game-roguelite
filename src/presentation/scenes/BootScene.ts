@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { SceneKeys, TextureKeys } from '@contracts/assetKeys';
+import { SceneKeys, TextureKeys, AnimationKeys } from '@contracts/assetKeys';
 
 /**
  * Стартовая сцена: прелоад текстур, звуков, генерация временных текстур-заглушек.
@@ -19,34 +19,73 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 160,
       frameHeight: 160,
     });
+
+    // Загрузка спрайтшита морковки (8 кадров x 4 направления, размер кадра 128x128)
+    this.load.spritesheet(TextureKeys.CARROT, 'assets/sprites/carrot.png', {
+      frameWidth: 128,
+      frameHeight: 128,
+    });
   }
 
   public create(): void {
     this.createCaterpillarAnimations();
+    this.createCarrotAnimations();
     this.scene.start(SceneKeys.MAIN_MENU);
+  }
+
+  private createCarrotAnimations(): void {
+    this.anims.create({
+      key: AnimationKeys.CARROT_WALK_DOWN,
+      frames: this.anims.generateFrameNumbers(TextureKeys.CARROT, { start: 0, end: 7 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: AnimationKeys.CARROT_WALK_UP,
+      frames: this.anims.generateFrameNumbers(TextureKeys.CARROT, { start: 8, end: 15 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: AnimationKeys.CARROT_WALK_LEFT,
+      frames: this.anims.generateFrameNumbers(TextureKeys.CARROT, { start: 16, end: 23 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: AnimationKeys.CARROT_WALK_RIGHT,
+      frames: this.anims.generateFrameNumbers(TextureKeys.CARROT, { start: 24, end: 31 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: AnimationKeys.CARROT_IDLE,
+      frames: [{ key: TextureKeys.CARROT, frame: 0 }],
+      frameRate: 1,
+    });
   }
 
   private createCaterpillarAnimations(): void {
     this.anims.create({
-      key: 'caterpillar_walk_down',
+      key: AnimationKeys.CATERPILLAR_WALK_DOWN,
       frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 0, end: 6 }),
       frameRate: 10,
       repeat: -1,
     });
     this.anims.create({
-      key: 'caterpillar_walk_up',
+      key: AnimationKeys.CATERPILLAR_WALK_UP,
       frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 7, end: 13 }),
       frameRate: 10,
       repeat: -1,
     });
     this.anims.create({
-      key: 'caterpillar_walk_left',
+      key: AnimationKeys.CATERPILLAR_WALK_LEFT,
       frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 14, end: 20 }),
       frameRate: 10,
       repeat: -1,
     });
     this.anims.create({
-      key: 'caterpillar_walk_right',
+      key: AnimationKeys.CATERPILLAR_WALK_RIGHT,
       frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 21, end: 27 }),
       frameRate: 10,
       repeat: -1,

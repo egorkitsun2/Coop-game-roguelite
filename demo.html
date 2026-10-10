@@ -434,6 +434,12 @@
 
         // Шлейф
         this.trail = [];
+
+        // Анимация спрайта Морковки (сетка 8 кадров x 4 направления, размер кадра 128x128)
+        this.spriteImg = null;
+        this.animTimer = 0;
+        this.animFrame = 0;
+        this.directionRow = 0; // 0: Вниз, 1: Вверх, 2: Влево, 3: Вправо
       }
 
       /**
@@ -519,6 +525,31 @@
         for (let i = this.trail.length - 1; i >= 0; i--) {
           this.trail[i].alpha -= dt * 3.5;
           if (this.trail[i].alpha <= 0) this.trail.splice(i, 1);
+        }
+
+        // 9. Анимация спрайта Морковки
+        const isMoving = (this.moveDir.x !== 0 || this.moveDir.y !== 0) || this.isDashing;
+        if (isMoving) {
+          this.animTimer += dt * (this.isDashing ? 16 : 10);
+          this.animFrame = Math.floor(this.animTimer) % 8;
+
+          if (Math.abs(this.moveDir.x) > Math.abs(this.moveDir.y)) {
+            this.directionRow = this.moveDir.x > 0 ? 3 : 2; // Вправо (3) : Влево (2)
+          } else {
+            this.directionRow = this.moveDir.y > 0 ? 0 : 1; // Вниз (0) : Вверх (1)
+          }
+        } else {
+          // В покое: морковка смотрит в сторону прицела мыши
+          const angle = this.rotation;
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+          if (Math.abs(cos) > Math.abs(sin)) {
+            this.directionRow = cos > 0 ? 3 : 2;
+          } else {
+            this.directionRow = sin > 0 ? 0 : 1;
+          }
+          this.animFrame = 0;
+          this.animTimer = 0;
         }
       }
 
@@ -627,14 +658,49 @@
           ctx.restore();
         }
 
+        // Тень персонажа
         ctx.save();
         ctx.translate(this.x, this.y);
-        ctx.rotate(this.rotation);
+        ctx.beginPath();
+        ctx.ellipse(0, 16, 18, 7, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fill();
+
+        // Отрисовка спрайта Морковки
+        if (this.spriteImg && this.spriteImg.complete && this.spriteImg.naturalWidth > 0) {
+          const frameW = 128;
+          const frameH = 128;
+          const sx = this.animFrame * frameW;
+          const sy = this.directionRow * frameH;
+          const renderW = 68;
+          const renderH = 68;
+
+          // Визуальные эффекты состояний
+          if (this.isDashing) {
+            ctx.filter = 'brightness(1.5) drop-shadow(0 0 10px #63b3ed)';
+          } else if (this.isBlocking) {
+            ctx.filter = 'drop-shadow(0 0 8px #3182ce)';
+          } else if (this.regenDuration > 0) {
+            ctx.filter = 'drop-shadow(0 0 8px #48bb78)';
+          }
+
+          ctx.drawImage(
+            this.spriteImg,
+            sx, sy, frameW, frameH,
+            -renderW / 2, -renderH / 2 - 4, renderW, renderH
+          );
+        } else {
+          // Фолбэк на кружок
+          ctx.beginPath();
+          ctx.arc(0, 0, CONFIG.player.radius, 0, Math.PI * 2);
+          ctx.fillStyle = this.isDashing ? '#90cdf4' : (this.isBlocking ? '#4299e1' : '#ed8936');
+          ctx.fill();
+        }
 
         // Индикатор блока (энергетический щит перед персонажем)
         if (this.isBlocking) {
           ctx.beginPath();
-          ctx.arc(0, 0, CONFIG.player.radius + 12, -Math.PI / 3, Math.PI / 3);
+          ctx.arc(0, 0, CONFIG.player.radius + 14, -Math.PI / 3, Math.PI / 3);
           ctx.strokeStyle = '#63b3ed';
           ctx.lineWidth = 5;
           ctx.shadowColor = '#3182ce';
@@ -642,39 +708,18 @@
           ctx.stroke();
         }
 
-        // Внешнее свечение при натяжении рогатки
-        if (this.chargeTime > 0) {
-          const ratio = this.chargeTime / CONFIG.player.maxChargeTime;
-          ctx.shadowColor = '#ecc94b';
-          ctx.shadowBlur = 10 + ratio * 20;
-        }
+        // Поворот оружия к курсору мыши
+        ctx.rotate(this.rotation);
 
-        // Свечение регенерации (зеленая аура вокруг игрока)
-        if (this.regenDuration > 0) {
-          ctx.shadowColor = '#48bb78';
-          ctx.shadowBlur = 18;
-        }
-
-        // Тело игрока
-        ctx.beginPath();
-        ctx.arc(0, 0, CONFIG.player.radius, 0, Math.PI * 2);
-        ctx.fillStyle = this.isDashing ? '#90cdf4' : (this.isBlocking ? '#4299e1' : '#48bb78');
-        ctx.fill();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#ffffff';
-        ctx.stroke();
-
-        // Оружие в руках (нос/пушка/палка)
+        // Индикатор натяжения рогатки / палки
         ctx.beginPath();
         if (this.currentWeapon === WEAPONS.STICK) {
-          // Палка в руках
-          ctx.rect(CONFIG.player.radius - 2, -3, 16, 6);
+          ctx.rect(CONFIG.player.radius + 2, -3, 14, 5);
           ctx.fillStyle = '#b7791f';
         } else {
-          // Рогатка
-          ctx.moveTo(CONFIG.player.radius - 2, -5);
-          ctx.lineTo(CONFIG.player.radius + 10, 0);
-          ctx.lineTo(CONFIG.player.radius - 2, 5);
+          ctx.moveTo(CONFIG.player.radius + 2, -5);
+          ctx.lineTo(CONFIG.player.radius + 12, 0);
+          ctx.lineTo(CONFIG.player.radius + 2, 5);
           ctx.fillStyle = this.chargeTime > 0 ? '#ecc94b' : '#a0aec0';
         }
         ctx.fill();
@@ -777,6 +822,14 @@
         this.projectiles = []; // активные снаряды
         this.potions = [];     // выпавшие зелья
         this.crates = [];      // разрушаемые ящики
+
+        // Морковка (главный герой)
+        this.carrotImg = new Image();
+        this.carrotImg.onerror = () => {
+          this.carrotImg.src = 'assets/sprites/carrot.png';
+        };
+        this.carrotImg.src = 'public/assets/sprites/carrot.png';
+        this.player.spriteImg = this.carrotImg;
 
         // Гусеницы и загрузка спрайтшита
         this.caterpillars = [];
