@@ -21,6 +21,9 @@ export enum GameEventType {
   GAME_OVER = 'GAME_OVER',
   RUN_STARTED = 'RUN_STARTED',
   ROOM_CLEARED = 'ROOM_CLEARED',
+  WAVE_COMPLETE = 'WAVE_COMPLETE',
+  BOSS_DEFEATED = 'BOSS_DEFEATED',
+  FINALE = 'FINALE',
 }
 
 export interface GameEventPayloads {

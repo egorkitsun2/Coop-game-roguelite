@@ -38,7 +38,7 @@ export class GameEventBus {
     if (list) {
       list.forEach((cb) => {
         try {
-          cb(payload);
+          (cb as (payload: unknown) => void)(payload);
         } catch (err) {
           console.error(`Error in event listener for [${event}]:`, err);
         }
