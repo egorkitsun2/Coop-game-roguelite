@@ -145,7 +145,8 @@
       Движение: <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> &nbsp;|&nbsp; 
       Рывок: <kbd>Space</kbd> &nbsp;|&nbsp; 
       Оружие: <kbd>1</kbd> Рогатка / <kbd>2</kbd> Палка &nbsp;|&nbsp; 
-      Действие: <kbd>ПКМ</kbd> (Натянуть / Блок)
+      Действие: <kbd>ПКМ</kbd> (Натянуть / Блок) &nbsp;|&nbsp;
+      Враг: <kbd>C</kbd> Призвать гусеницу
     </div>
   </div>
 
@@ -289,6 +290,107 @@
         // Горлышко
         ctx.fillStyle = '#cbd5e0';
         ctx.fillRect(-3, -8, 6, 4);
+
+        ctx.restore();
+      }
+    }
+
+    // ==========================================
+    // КЛАСС ВРАГА: ГУСЕНИЦА (CATERPILLAR ENEMY)
+    // ==========================================
+    class CaterpillarEnemy {
+      constructor(x, y, spriteImg) {
+        this.x = x;
+        this.y = y;
+        this.radius = 24;
+        this.speed = 65;
+        this.hp = 5;
+        this.isDead = false;
+        this.hitFlashTimer = 0;
+        this.spriteImg = spriteImg;
+
+        // Анимация спрайта (сетка 7 колонок x 4 строки, размер ячейки 160x160)
+        this.frameTimer = 0;
+        this.currentFrame = 0;
+        this.totalFrames = 7;
+        this.fps = 9;
+        this.directionRow = 0; // 0: Вниз, 1: Вверх, 2: Влево, 3: Вправо
+      }
+
+      update(dt, playerPos) {
+        if (this.isDead) return;
+
+        if (this.hitFlashTimer > 0) {
+          this.hitFlashTimer -= dt;
+        }
+
+        // Преследование игрока
+        const dx = playerPos.x - this.x;
+        const dy = playerPos.y - this.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > 6) {
+          const vx = (dx / dist) * this.speed;
+          const vy = (dy / dist) * this.speed;
+          this.x += vx * dt;
+          this.y += vy * dt;
+
+          // Определение анимационной строки по направлению
+          if (Math.abs(dx) > Math.abs(dy)) {
+            this.directionRow = dx > 0 ? 3 : 2; // Вправо (3) : Влево (2)
+          } else {
+            this.directionRow = dy > 0 ? 0 : 1; // Вниз (0) : Вверх (1)
+          }
+
+          // Цикл анимации ползания
+          this.frameTimer += dt * this.fps;
+          this.currentFrame = Math.floor(this.frameTimer) % this.totalFrames;
+        }
+      }
+
+      takeDamage(amount) {
+        this.hp -= amount;
+        this.hitFlashTimer = 0.15;
+        if (this.hp <= 0) {
+          this.isDead = true;
+        }
+      }
+
+      draw(ctx) {
+        if (this.isDead) return;
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Тень гусеницы
+        ctx.beginPath();
+        ctx.ellipse(0, 16, 20, 8, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fill();
+
+        if (this.spriteImg && this.spriteImg.complete && this.spriteImg.naturalWidth > 0) {
+          const frameW = 160;
+          const frameH = 160;
+          const sx = this.currentFrame * frameW;
+          const sy = this.directionRow * frameH;
+          const renderSize = 72; // Размер отрисовки на экране
+
+          if (this.hitFlashTimer > 0) {
+            ctx.filter = 'brightness(2) drop-shadow(0 0 8px #ff4444)';
+          }
+
+          ctx.drawImage(
+            this.spriteImg,
+            sx, sy, frameW, frameH,
+            -renderSize / 2, -renderSize / 2, renderSize, renderSize
+          );
+        } else {
+          // Фолбэк, если спрайт загружается
+          ctx.beginPath();
+          ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+          ctx.fillStyle = this.hitFlashTimer > 0 ? '#ff6666' : '#48bb78';
+          ctx.fill();
+        }
 
         ctx.restore();
       }
@@ -633,6 +735,9 @@
             e.preventDefault();
             this.dashRequested = true;
           }
+          if (e.code === 'KeyC') {
+            this.spawnEnemyRequested = true;
+          }
         });
 
         window.addEventListener('keyup', (e) => {
@@ -643,6 +748,12 @@
       consumeDash() {
         const req = this.dashRequested;
         this.dashRequested = false;
+        return req;
+      }
+
+      consumeSpawnEnemy() {
+        const req = this.spawnEnemyRequested;
+        this.spawnEnemyRequested = false;
         return req;
       }
 
@@ -667,8 +778,19 @@
         this.potions = [];     // выпавшие зелья
         this.crates = [];      // разрушаемые ящики
 
-        // Спавним стартовые ящики по арене
+        // Гусеницы и загрузка спрайтшита
+        this.caterpillars = [];
+        this.caterpillarImg = new Image();
+        this.caterpillarImg.onerror = () => {
+          this.caterpillarImg.src = 'assets/sprites/caterpillar.png';
+        };
+        this.caterpillarImg.src = 'public/assets/sprites/caterpillar.png';
+
+        // Спавним стартовые ящики и врагов
         this.spawnInitialCrates();
+        this.spawnCaterpillar(160, 200);
+        this.spawnCaterpillar(800, 220);
+        this.spawnCaterpillar(480, 420);
 
         // UI элементы
         this.hpFill = document.getElementById('hp-fill');
@@ -678,6 +800,12 @@
 
         this.lastTime = 0;
         requestAnimationFrame(this.loop.bind(this));
+      }
+
+      spawnCaterpillar(x, y) {
+        const spawnX = x ?? (Math.random() > 0.5 ? 80 : this.canvas.width - 80);
+        const spawnY = y ?? (Math.random() * (this.canvas.height - 140) + 70);
+        this.caterpillars.push(new CaterpillarEnemy(spawnX, spawnY, this.caterpillarImg));
       }
 
       spawnInitialCrates() {
@@ -700,6 +828,7 @@
         const frameInput = {
           keys: this.input.keys,
           dashRequested: this.input.consumeDash(),
+          spawnEnemyRequested: this.input.consumeSpawnEnemy(),
           mouse: {
             x: this.input.mouse.x,
             y: this.input.mouse.y,
@@ -718,11 +847,25 @@
       }
 
       update(dt, frameInput) {
+        // Спавн гусеницы по клавише C
+        if (frameInput.spawnEnemyRequested) {
+          this.spawnCaterpillar();
+        }
+
         // Обновление игрока
         this.player.update(dt, frameInput, this.projectiles, {
           width: this.canvas.width,
           height: this.canvas.height,
         });
+
+        // Обновление гусениц
+        for (let i = this.caterpillars.length - 1; i >= 0; i--) {
+          const cat = this.caterpillars[i];
+          cat.update(dt, { x: this.player.x, y: this.player.y });
+          if (cat.isDead) {
+            this.caterpillars.splice(i, 1);
+          }
+        }
 
         // Обновление снарядов
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -733,6 +876,27 @@
 
         // Обновление зелий
         this.potions.forEach(pot => pot.update(dt));
+
+        // ----------------------------------------------------
+        // КОЛЛИЗИИ: СНАРЯДЫ РОГАТКИ vs ГУСЕНИЦЫ
+        // ----------------------------------------------------
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+          const p = this.projectiles[i];
+          if (p.isDead) continue;
+
+          for (let j = this.caterpillars.length - 1; j >= 0; j--) {
+            const cat = this.caterpillars[j];
+            if (cat.isDead) continue;
+
+            const dist = Math.hypot(p.x - cat.x, p.y - cat.y);
+            if (dist < p.radius + cat.radius) {
+              p.isDead = true;
+              cat.takeDamage(this.player.baseDamage);
+              this.projectiles.splice(i, 1);
+              break;
+            }
+          }
+        }
 
         // ----------------------------------------------------
         // КОЛЛИЗИИ: СНАРЯДЫ РОГАТКИ vs ЯЩИКИ
@@ -747,7 +911,6 @@
 
             const dist = Math.hypot(p.x - crate.x, p.y - crate.y);
             if (dist < p.radius + crate.radius) {
-              // При коллизии ящик и снаряд уничтожаются
               p.isDead = true;
               crate.isDead = true;
 
@@ -772,11 +935,8 @@
 
           const dist = Math.hypot(this.player.x - pot.x, this.player.y - pot.y);
           if (dist < CONFIG.player.radius + pot.radius) {
-            // Зелье подобрано
             pot.isDead = true;
             this.potions.splice(i, 1);
-
-            // Триггерим функцию лечения
             this.player.applyPotion();
           }
         }
@@ -821,6 +981,9 @@
 
         // Отрисовка выпавших зелий
         this.potions.forEach(pot => pot.draw(this.ctx));
+
+        // Отрисовка гусениц
+        this.caterpillars.forEach(cat => cat.draw(this.ctx));
 
         // Отрисовка снарядов
         this.projectiles.forEach(p => p.draw(this.ctx));

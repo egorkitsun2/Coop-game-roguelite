@@ -14,6 +14,7 @@ export const SceneKeys = {
 export const TextureKeys = {
   PLAYER: 'player_sprite',
   ENEMY_BASIC: 'enemy_basic_sprite',
+  CATERPILLAR: 'caterpillar_sprite',
   PROJECTILE: 'projectile_sprite',
   COIN: 'coin_sprite',
   TILES: 'dungeon_tiles',

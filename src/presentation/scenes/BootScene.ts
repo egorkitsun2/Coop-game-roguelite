@@ -13,10 +13,44 @@ export class BootScene extends Phaser.Scene {
   public preload(): void {
     // Временная генерация цветных квадратов для Спринта 1, пока нет спрайтов
     this.createPlaceholderGraphics();
+
+    // Загрузка спрайтшита гусеницы (7 кадров x 4 направления, размер кадра 160x160)
+    this.load.spritesheet(TextureKeys.CATERPILLAR, 'assets/sprites/caterpillar.png', {
+      frameWidth: 160,
+      frameHeight: 160,
+    });
   }
 
   public create(): void {
+    this.createCaterpillarAnimations();
     this.scene.start(SceneKeys.MAIN_MENU);
+  }
+
+  private createCaterpillarAnimations(): void {
+    this.anims.create({
+      key: 'caterpillar_walk_down',
+      frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 0, end: 6 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: 'caterpillar_walk_up',
+      frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 7, end: 13 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: 'caterpillar_walk_left',
+      frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 14, end: 20 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: 'caterpillar_walk_right',
+      frames: this.anims.generateFrameNumbers(TextureKeys.CATERPILLAR, { start: 21, end: 27 }),
+      frameRate: 10,
+      repeat: -1,
+    });
   }
 
   private createPlaceholderGraphics(): void {
