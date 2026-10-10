@@ -217,10 +217,79 @@
         ctx.save();
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#ecc94b'; // желтовато-каменный цвет
+        ctx.fillStyle = '#ecc94b';
         ctx.shadowColor = '#d69e2e';
         ctx.shadowBlur = 8;
         ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // ==========================================
+    // КЛАСС РАЗРУШАЕМОГО ОБЪЕКТА (ЯЩИК)
+    // ==========================================
+    class Crate {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 16;
+        this.isDead = false;
+      }
+
+      draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.fillStyle = '#8b5a2b';
+        ctx.strokeStyle = '#5c3a1e';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-14, -14, 28, 28);
+        ctx.strokeRect(-14, -14, 28, 28);
+
+        // Крест на ящике
+        ctx.beginPath();
+        ctx.moveTo(-14, -14); ctx.lineTo(14, 14);
+        ctx.moveTo(14, -14); ctx.lineTo(-14, 14);
+        ctx.strokeStyle = '#5c3a1e';
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // ==========================================
+    // КЛАСС ПРЕДМЕТА (ЗЕЛЬЕ ЛЕЧЕНИЯ)
+    // ==========================================
+    class Potion {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 12;
+        this.isDead = false;
+        this.bobble = 0; // плавная анимация левитации
+      }
+
+      update(dt) {
+        this.bobble += dt * 4;
+      }
+
+      draw(ctx) {
+        const offsetY = Math.sin(this.bobble) * 3;
+        ctx.save();
+        ctx.translate(this.x, this.y + offsetY);
+
+        // Свечение зелья
+        ctx.shadowColor = '#e53e3e';
+        ctx.shadowBlur = 12;
+
+        // Колба зелья
+        ctx.beginPath();
+        ctx.arc(0, 2, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#e53e3e';
+        ctx.fill();
+
+        // Горлышко
+        ctx.fillStyle = '#cbd5e0';
+        ctx.fillRect(-3, -8, 6, 4);
+
         ctx.restore();
       }
     }
@@ -236,9 +305,13 @@
 
         // Характеристики
         this.maxHp = CONFIG.player.maxHp;
-        this.hp = this.maxHp;
+        this.hp = 50; // для демонстрации лечения начинаем с 50/100
         this.baseSpeed = CONFIG.player.baseSpeed;
         this.baseDamage = CONFIG.player.baseDamage; // 5
+
+        // Эффект регенерации от зелья
+        this.regenDuration = 0;   // остаток длительности регенерации (10 сек)
+        this.regenTickTimer = 0;  // таймер тика (+1 HP каждую секунду)
 
         // Оружие: 0 — Рогатка, 1 — Палка
         this.currentWeapon = WEAPONS.SLINGSHOT;
@@ -262,6 +335,27 @@
       }
 
       /**
+       * Функция лечения персонажа с ограничением капа в 100 HP
+       */
+      heal(amount) {
+        this.hp = Math.min(this.maxHp, this.hp + amount);
+      }
+
+      /**
+       * Эффект подбора зелья:
+       * 1. Мгновенно +20 HP (не более 100 HP)
+       * 2. Запуск/сброс таймера регенерации на ровно 10 секунд (+1 HP/сек)
+       */
+      applyPotion() {
+        // Мгновенный хил
+        this.heal(20);
+
+        // Сброс таймера регенерации ровно на 10 секунд
+        this.regenDuration = 10.0;
+        this.regenTickTimer = 1.0; // первый тик через 1 секунду
+      }
+
+      /**
        * Обновление состояния игрока в игровом цикле
        */
       update(dt, input, projectiles, arenaBounds) {
@@ -279,18 +373,29 @@
           this.dashCooldownTimer = Math.max(0, this.dashCooldownTimer - dt);
         }
 
-        // 4. Логика оружия по ПКМ (RMB)
+        // 4. Логика эффекта регенерации от зелья (+1 HP каждую секунду, ровно 10 сек)
+        if (this.regenDuration > 0) {
+          this.regenDuration = Math.max(0, this.regenDuration - dt);
+          this.regenTickTimer -= dt;
+
+          if (this.regenTickTimer <= 0) {
+            this.heal(1);
+            this.regenTickTimer += 1.0; // следующий тик через 1 сек
+          }
+        }
+
+        // 5. Логика оружия по ПКМ (RMB)
         this.updateWeapon(dt, input, projectiles);
 
-        // 5. Ввод движения (WASD)
+        // 6. Ввод движения (WASD)
         this.processMovementInput(input);
 
-        // 6. Рывок
+        // 7. Рывок
         if (input.dashRequested && this.canDash()) {
           this.startDash();
         }
 
-        // 7. Перемещение (во время блока скорость снижается на 50%)
+        // 8. Перемещение (во время блока скорость снижается на 50%)
         const speedModifier = this.isBlocking ? 0.5 : 1.0;
         if (this.isDashing) {
           this.x += this.dashVelocity.x * dt;
@@ -442,6 +547,12 @@
           ctx.shadowBlur = 10 + ratio * 20;
         }
 
+        // Свечение регенерации (зеленая аура вокруг игрока)
+        if (this.regenDuration > 0) {
+          ctx.shadowColor = '#48bb78';
+          ctx.shadowBlur = 18;
+        }
+
         // Тело игрока
         ctx.beginPath();
         ctx.arc(0, 0, CONFIG.player.radius, 0, Math.PI * 2);
@@ -552,7 +663,12 @@
 
         this.input = new InputManager(this.canvas);
         this.player = new PlayerController(this.canvas.width / 2, this.canvas.height / 2);
-        this.projectiles = []; // активные снаряды рогатки
+        this.projectiles = []; // активные снаряды
+        this.potions = [];     // выпавшие зелья
+        this.crates = [];      // разрушаемые ящики
+
+        // Спавним стартовые ящики по арене
+        this.spawnInitialCrates();
 
         // UI элементы
         this.hpFill = document.getElementById('hp-fill');
@@ -564,13 +680,23 @@
         requestAnimationFrame(this.loop.bind(this));
       }
 
+      spawnInitialCrates() {
+        const positions = [
+          { x: 180, y: 140 }, { x: 220, y: 140 }, { x: 200, y: 180 },
+          { x: 740, y: 140 }, { x: 780, y: 140 },
+          { x: 200, y: 380 }, { x: 760, y: 380 },
+          { x: 480, y: 120 }, { x: 480, y: 420 },
+        ];
+        positions.forEach(pos => this.crates.push(new Crate(pos.x, pos.y)));
+      }
+
       loop(timestamp) {
         if (!this.lastTime) this.lastTime = timestamp;
         let dt = (timestamp - this.lastTime) / 1000;
         this.lastTime = timestamp;
         if (dt > 0.1) dt = 0.1;
 
-        // Считываем атомарное состояние ввода этого кадра
+        // Считываем ввод
         const frameInput = {
           keys: this.input.keys,
           dashRequested: this.input.consumeDash(),
@@ -592,7 +718,7 @@
       }
 
       update(dt, frameInput) {
-        // Обновление игрока (логика натяжения, блока, движения)
+        // Обновление игрока
         this.player.update(dt, frameInput, this.projectiles, {
           width: this.canvas.width,
           height: this.canvas.height,
@@ -602,8 +728,56 @@
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
           const p = this.projectiles[i];
           p.update(dt, { width: this.canvas.width, height: this.canvas.height });
-          if (p.isDead) {
-            this.projectiles.splice(i, 1);
+          if (p.isDead) this.projectiles.splice(i, 1);
+        }
+
+        // Обновление зелий
+        this.potions.forEach(pot => pot.update(dt));
+
+        // ----------------------------------------------------
+        // КОЛЛИЗИИ: СНАРЯДЫ РОГАТКИ vs ЯЩИКИ
+        // ----------------------------------------------------
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+          const p = this.projectiles[i];
+          if (p.isDead) continue;
+
+          for (let j = this.crates.length - 1; j >= 0; j--) {
+            const crate = this.crates[j];
+            if (crate.isDead) continue;
+
+            const dist = Math.hypot(p.x - crate.x, p.y - crate.y);
+            if (dist < p.radius + crate.radius) {
+              // При коллизии ящик и снаряд уничтожаются
+              p.isDead = true;
+              crate.isDead = true;
+
+              // РАНДОМАЙЗЕР: шанс ровно 15% на дроп Зелья
+              if (Math.random() < 0.15) {
+                this.potions.push(new Potion(crate.x, crate.y));
+              }
+
+              this.crates.splice(j, 1);
+              this.projectiles.splice(i, 1);
+              break;
+            }
+          }
+        }
+
+        // ----------------------------------------------------
+        // КОЛЛИЗИИ: ИГРОК vs ЗЕЛЬЯ (ПОДБОР)
+        // ----------------------------------------------------
+        for (let i = this.potions.length - 1; i >= 0; i--) {
+          const pot = this.potions[i];
+          if (pot.isDead) continue;
+
+          const dist = Math.hypot(this.player.x - pot.x, this.player.y - pot.y);
+          if (dist < CONFIG.player.radius + pot.radius) {
+            // Зелье подобрано
+            pot.isDead = true;
+            this.potions.splice(i, 1);
+
+            // Триггерим функцию лечения
+            this.player.applyPotion();
           }
         }
 
@@ -614,7 +788,15 @@
         // HP
         const hpPercent = (this.player.hp / this.player.maxHp) * 100;
         this.hpFill.style.width = `${hpPercent}%`;
-        this.hpValue.textContent = `${Math.round(this.player.hp)} / ${this.player.maxHp}`;
+
+        let regenText = '';
+        if (this.player.regenDuration > 0) {
+          regenText = ` (+1/s: ${this.player.regenDuration.toFixed(1)}s)`;
+          this.hpValue.style.color = '#68d391';
+        } else {
+          this.hpValue.style.color = '#e2e8f0';
+        }
+        this.hpValue.textContent = `${Math.round(this.player.hp)} / ${this.player.maxHp}${regenText}`;
 
         // Dash Cooldown
         if (this.player.dashCooldownTimer <= 0) {
@@ -634,13 +816,19 @@
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.drawGrid();
 
+        // Отрисовка ящиков
+        this.crates.forEach(c => c.draw(this.ctx));
+
+        // Отрисовка выпавших зелий
+        this.potions.forEach(pot => pot.draw(this.ctx));
+
         // Отрисовка снарядов
         this.projectiles.forEach(p => p.draw(this.ctx));
 
         // Отрисовка игрока
         this.player.draw(this.ctx, this.input.mouse);
 
-        // Подсказка на экране о текущем оружии
+        // Статус оружия и действий
         this.drawWeaponStatus();
       }
 
@@ -655,7 +843,7 @@
             const dmg = (this.player.baseDamage * mult).toFixed(1);
             actionStatus = `Натяжение: ${Math.round(ratio * 100)}% (Урон: ${dmg})`;
           } else {
-            actionStatus = 'Зажмите ПКМ для натяжения';
+            actionStatus = 'Зажмите ПКМ для натяжения (стреляйте по ящикам!)';
           }
         } else {
           actionStatus = this.player.isBlocking ? '🛡️ БЛОК АКТИВЕН' : 'Удерживайте ПКМ для блока';
