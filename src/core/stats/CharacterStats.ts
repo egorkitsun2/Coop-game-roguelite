@@ -46,6 +46,28 @@ export class CharacterStats implements ICharacterStats {
     if (bonuses.attackCooldown) this.attackCooldown = Math.max(100, this.attackCooldown - bonuses.attackCooldown);
   }
 
+  public isAlive(): boolean {
+    return this.currentHp > 0;
+  }
+
+  public isDead(): boolean {
+    return this.currentHp <= 0;
+  }
+
+  public takeRawDamage(amount: number): { actualDamageTaken: number; isFatal: boolean } {
+    const prev = this.currentHp;
+    this.currentHp = Math.max(0, this.currentHp - Math.max(0, amount));
+    const actualDamageTaken = prev - this.currentHp;
+    return {
+      actualDamageTaken,
+      isFatal: this.isDead(),
+    };
+  }
+
+  public resetHp(): void {
+    this.currentHp = this.maxHp;
+  }
+
   public clone(): CharacterStats {
     return new CharacterStats({
       maxHp: this.maxHp,
