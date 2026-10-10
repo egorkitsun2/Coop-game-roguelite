@@ -47,4 +47,20 @@ export class JuiceEffects {
   public shakeCamera(intensity = 0.005, duration = 100): void {
     this.scene.cameras.main.shake(duration, intensity);
   }
+
+  public showDust(x: number, y: number): void {
+    const particles = this.scene.add.graphics();
+    particles.fillStyle(0x8b5a2b, 0.8);
+    for (let i = 0; i < 6; i++) {
+      const px = x + Phaser.Math.Between(-12, 12);
+      const py = y + Phaser.Math.Between(-12, 12);
+      particles.fillCircle(px, py, Phaser.Math.Between(2, 4));
+    }
+    this.scene.tweens.add({
+      targets: particles,
+      alpha: 0,
+      duration: 350,
+      onComplete: () => particles.destroy(),
+    });
+  }
 }
