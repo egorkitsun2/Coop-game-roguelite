@@ -10,11 +10,17 @@ export enum GameEventType {
   DAMAGE_DEALT = 'DAMAGE_DEALT',
   ENTITY_DIED = 'ENTITY_DIED',
   PLAYER_HEALED = 'PLAYER_HEALED',
-  
+  SHIELD_BLOCKED = 'SHIELD_BLOCKED',   // щит поглотил удар (визуальный эффект)
+
   // Экономика и прогрессия
   GOLD_UPDATED = 'GOLD_UPDATED',
   LOOT_DROPPED = 'LOOT_DROPPED',
   UPGRADE_PURCHASED = 'UPGRADE_PURCHASED',
+
+  // Волны и боссы
+  WAVE_COMPLETE = 'WAVE_COMPLETE',     // волна зачищена
+  BOSS_DEFEATED = 'BOSS_DEFEATED',     // босс убит, выдана награда
+  FINALE = 'FINALE',                  // крыса убита — конец игры
 
   // Стейт игры
   GAME_OVER = 'GAME_OVER',
@@ -64,4 +70,15 @@ export interface GameEventPayloads {
   [GameEventType.ROOM_CLEARED]: {
     roomId: string;
   };
+  [GameEventType.SHIELD_BLOCKED]: {
+    remainingCharges: number;
+  };
+  [GameEventType.WAVE_COMPLETE]: {
+    waveNumber: number;
+  };
+  [GameEventType.BOSS_DEFEATED]: {
+    bossType: string;
+    reward: 'shield' | 'hitbox_shrink' | 'finale';
+  };
+  [GameEventType.FINALE]: Record<string, never>;
 }
