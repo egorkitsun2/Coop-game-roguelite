@@ -57,3 +57,17 @@ export interface ISaveData {
     enemiesKilled: number;
   };
 }
+
+export interface IPotionEffect {
+  instantHeal: number;
+  regenDuration: number;
+  regenPerSecond: number;
+}
+
+export interface IWeaponState {
+  type: number; // 0 = Slingshot, 1 = Stick
+  isCharging: boolean;
+  chargeRatio: number; // 0.0 - 1.0
+  isBlocking: boolean;
+}
+

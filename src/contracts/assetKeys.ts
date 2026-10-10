@@ -19,6 +19,8 @@ export const TextureKeys = {
   PROJECTILE: 'projectile_sprite',
   COIN: 'coin_sprite',
   TILES: 'dungeon_tiles',
+  CRATE: 'crate_sprite',
+  POTION: 'potion_sprite',
 } as const;
 
 export const AudioKeys = {

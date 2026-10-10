@@ -1,14 +1,17 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '@contracts/assetKeys';
+import { BalanceConfig } from '@config/balanceConfig';
 
 /**
  * Визуальный компонент снаряда (камень из рогатки).
+ * Поддерживает урон с учетом натяжения рогатки и время жизни из demo.html.
  * (Зона ответственности: Разработчик Б)
  */
 export class ProjectileView extends Phaser.Physics.Arcade.Sprite {
-  private speed: number = 480;
+  private speed: number = BalanceConfig.player.projectileSpeed;
   private maxLifeTime: number = 2000; // 2 секунды время жизни
   private spawnTime: number = 0;
+  public damage: number = BalanceConfig.player.baseDamage;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, TextureKeys.PROJECTILE);
@@ -17,22 +20,24 @@ export class ProjectileView extends Phaser.Physics.Arcade.Sprite {
     scene.physics.add.existing(this);
 
     this.setDepth(9);
+    this.setSize(10, 10);
   }
 
-  public fire(targetX: number, targetY: number): void {
+  public fire(targetX: number, targetY: number, speed?: number, damage?: number): void {
     this.spawnTime = this.scene.time.now;
+    if (speed !== undefined) this.speed = speed;
+    if (damage !== undefined) this.damage = damage;
+
     this.setActive(true);
     this.setVisible(true);
 
     const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
     this.setRotation(angle);
 
-    // Прямой расчет скорости без зависимости от scene.physics и без лишних аллокаций памяти
     const vx = Math.cos(angle) * this.speed;
     const vy = Math.sin(angle) * this.speed;
     this.setVelocity(vx, vy);
 
-    // Гарантированное уничтожение снаряда по истечении времени жизни
     this.scene.time.delayedCall(this.maxLifeTime, () => {
       if (this.active) {
         this.destroy();
@@ -49,7 +54,6 @@ export class ProjectileView extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
-    // Безопасное удаление при вылете за границы арены
     const worldBounds = this.scene.physics?.world?.bounds;
     if (
       worldBounds &&

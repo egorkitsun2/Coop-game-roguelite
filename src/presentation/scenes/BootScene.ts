@@ -105,10 +105,36 @@ export class BootScene extends Phaser.Scene {
     enemyGraphics.fillRect(0, 0, 32, 32);
     enemyGraphics.generateTexture(TextureKeys.ENEMY_BASIC, 32, 32);
 
-    // Снаряд (Желтый круг)
+    // Снаряд (Золотой сияющий круг из demo.html)
     const projGraphics = this.make.graphics({ x: 0, y: 0 });
-    projGraphics.fillStyle(0xf6e05e, 1);
-    projGraphics.fillCircle(8, 8, 8);
-    projGraphics.generateTexture(TextureKeys.PROJECTILE, 16, 16);
+    projGraphics.fillStyle(0xd69e2e, 0.4);
+    projGraphics.fillCircle(10, 10, 10);
+    projGraphics.fillStyle(0xecc94b, 1);
+    projGraphics.fillCircle(10, 10, 6);
+    projGraphics.generateTexture(TextureKeys.PROJECTILE, 20, 20);
+
+    // Ящик (Деревянный ящик с диагональным крестом из demo.html)
+    const crateGraphics = this.make.graphics({ x: 0, y: 0 });
+    crateGraphics.fillStyle(0x8b5a2b, 1);
+    crateGraphics.fillRect(2, 2, 28, 28);
+    crateGraphics.lineStyle(2, 0x5c3a1e, 1);
+    crateGraphics.strokeRect(2, 2, 28, 28);
+    crateGraphics.beginPath();
+    crateGraphics.moveTo(2, 2);
+    crateGraphics.lineTo(30, 30);
+    crateGraphics.moveTo(30, 2);
+    crateGraphics.lineTo(2, 30);
+    crateGraphics.strokePath();
+    crateGraphics.generateTexture(TextureKeys.CRATE, 32, 32);
+
+    // Зелье лечения (Красная склянка с горлышком и сиянием из demo.html)
+    const potGraphics = this.make.graphics({ x: 0, y: 0 });
+    potGraphics.fillStyle(0xe53e3e, 0.35);
+    potGraphics.fillCircle(14, 16, 12);
+    potGraphics.fillStyle(0xe53e3e, 1);
+    potGraphics.fillCircle(14, 16, 8);
+    potGraphics.fillStyle(0xcbd5e0, 1);
+    potGraphics.fillRect(11, 4, 6, 6);
+    potGraphics.generateTexture(TextureKeys.POTION, 28, 30);
   }
 }

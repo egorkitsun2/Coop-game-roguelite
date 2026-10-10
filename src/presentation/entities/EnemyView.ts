@@ -1,30 +1,31 @@
 import Phaser from 'phaser';
 import { CharacterStats } from '@core/stats/CharacterStats';
 import { TextureKeys, AnimationKeys } from '@contracts/assetKeys';
+import { BalanceConfig } from '@config/balanceConfig';
 
 /**
- * Базовый враг (Гусеница / Личинка - умирает от одного удара согласно Basic).
- * Вид сверху (Vampire Survivors style), преследует игрока.
+ * Базовый враг (Гусеница / Личинка) из demo.html.
+ * Преследует игрока со скоростью 65 px/s, HP = 5.
  * (Зона ответственности: Разработчик Б)
  */
 export class EnemyView extends Phaser.Physics.Arcade.Sprite {
   public id: string;
   public stats: CharacterStats;
   private lastAttackTime: number = 0;
-  private attackCooldownMs: number = 800; // Кулдаун контактного урона
+  private attackCooldownMs: number = BalanceConfig.enemy.caterpillar.contactCooldown;
 
   constructor(scene: Phaser.Scene, x: number, y: number, stats?: CharacterStats) {
     super(scene, x, y, TextureKeys.CATERPILLAR);
 
     this.id = `enemy_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
-    // Характеристики Личинки: умирает с 1 удара (HP 4)
+    const catConfig = BalanceConfig.enemy.caterpillar;
     this.stats = stats ?? new CharacterStats({
-      maxHp: 4,
-      currentHp: 4,
-      damage: 5,
+      maxHp: catConfig.hp,
+      currentHp: catConfig.hp,
+      damage: catConfig.contactDamage,
       defense: 0,
-      moveSpeed: 75,
+      moveSpeed: catConfig.speed,
     });
 
     scene.add.existing(this);

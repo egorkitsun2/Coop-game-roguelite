@@ -1,24 +1,30 @@
 import Phaser from 'phaser';
 import { SceneKeys } from '@contracts/assetKeys';
 import { GameEventType } from '@contracts/events';
+import { BalanceConfig } from '@config/balanceConfig';
 import { CharacterStats } from '@core/stats/CharacterStats';
 import { DamageCalculator } from '@core/combat/DamageCalculator';
 import { SaveManager } from '@core/save/SaveManager';
 import { eventBus } from '@core/eventBus';
 import { InputManager } from '../input/InputManager';
-import { PlayerView } from '../entities/PlayerView';
+import { PlayerView, ShotEventData } from '../entities/PlayerView';
 import { EnemyView } from '../entities/EnemyView';
 import { ProjectileView } from '../entities/ProjectileView';
+import { CrateView } from '../entities/CrateView';
+import { PotionView } from '../entities/PotionView';
 import { HUDView } from '../ui/HUDView';
 import { JuiceEffects } from '../fx/JuiceEffects';
 
 /**
  * Основная игровая сцена: забег, управление, боевой цикл.
- * Реализует полный геймплей Спринта 1-2:
- *   - WASD-передвижение морковки
- *   - Стрельба снарядами по клику/пробелу
- *   - Волны гусениц, преследующих игрока
- *   - Расчет урона, лут, золото, смерть
+ * Полная интеграция всех механик из demo.html:
+ *  - Сетка арены (Grid 40px)
+ *  - Разрушаемые ящики (Crates) с 15% шансом выпадения зелий
+ *  - Зелья здоровья (Potions) с мгновенным лечением +20 HP и 10 сек регенерации
+ *  - Натяжение рогатки (ПКМ) со скейлом урона
+ *  - Блок палкой (ПКМ) со снижением входящего урона и щитом
+ *  - Рывок (Dash на Space) со шлейфом
+ *  - Призыв гусениц по клавише 'C'
  * (Зона ответственности: Разработчик Б, использующий модули Разработчика А)
  */
 export class GameScene extends Phaser.Scene {
@@ -27,12 +33,12 @@ export class GameScene extends Phaser.Scene {
   private hud!: HUDView;
   private juice!: JuiceEffects;
 
-  // Группы для физики
+  // Физические группы
   private enemies!: Phaser.Physics.Arcade.Group;
   private projectiles!: Phaser.Physics.Arcade.Group;
+  private crates!: Phaser.Physics.Arcade.Group;
+  private potions!: Phaser.Physics.Arcade.Group;
 
-  // Стрельба
-  private lastShotTime: number = 0;
   private playerStats!: CharacterStats;
 
   // Волны врагов
@@ -57,26 +63,28 @@ export class GameScene extends Phaser.Scene {
     this.runKills = 0;
     this.waveNumber = 0;
     this.enemiesAlive = 0;
-    this.lastShotTime = 0;
 
     // Очистка шины от предыдущих забегов
     eventBus.clear();
 
-    // 1. Ввод и визуальные эффекты
+    // 1. Отрисовка сетки арены (как в demo.html)
+    this.drawArenaGrid(width, height);
+
+    // 2. Ввод и визуальные сочные эффекты
     this.inputManager = new InputManager(this);
     this.juice = new JuiceEffects(this);
 
-    // 2. Модель данных игрока (Ядро от Дев А)
+    // 3. Модель данных игрока (для демо начинаем с 50/100 HP, чтобы сразу протестировать зелье)
     const saveData = SaveManager.load();
     this.playerStats = new CharacterStats({
-      maxHp: 100,
-      damage: 25,
-      moveSpeed: 220,
-      attackCooldown: 350,
+      maxHp: BalanceConfig.player.maxHp,
+      currentHp: 50,
+      damage: BalanceConfig.player.baseDamage,
+      moveSpeed: BalanceConfig.player.baseSpeed,
+      attackCooldown: 300,
     });
-    // Будущее: применить бонусы из сейва через applyModifier
 
-    // 3. Визуальный игрок
+    // 4. Визуальный игрок с поддержкой оружия, dash и натяжения
     this.player = new PlayerView(
       this,
       width / 2,
@@ -85,7 +93,12 @@ export class GameScene extends Phaser.Scene {
       this.inputManager
     );
 
-    // 4. Физические группы
+    // Подписка на выстрел рогатки
+    this.player.onShoot = (shot: ShotEventData) => {
+      this.spawnProjectile(shot);
+    };
+
+    // 5. Физические группы
     this.enemies = this.physics.add.group({
       classType: EnemyView,
       runChildUpdate: true,
@@ -96,7 +109,128 @@ export class GameScene extends Phaser.Scene {
       runChildUpdate: true,
     });
 
-    // 5. Коллизии
+    this.crates = this.physics.add.group({
+      classType: CrateView,
+      runChildUpdate: true,
+    });
+
+    this.potions = this.physics.add.group({
+      classType: PotionView,
+      runChildUpdate: true,
+    });
+
+    // 6. Спавн начальных ящиков (координаты точно из demo.html)
+    this.spawnInitialCrates();
+
+    // 7. Коллизии и оверлапы
+    this.setupCollisions();
+
+    // 8. HUD
+    this.hud = new HUDView(this);
+    this.hud.updateHp(this.playerStats.currentHp, this.playerStats.maxHp);
+
+    // 9. Спавн стартовых врагов из demo.html
+    this.spawnCaterpillarAt(160, 200);
+    this.spawnCaterpillarAt(800, 220);
+    this.spawnCaterpillarAt(480, 420);
+
+    // 10. Автоспавн волн каждые 8 секунд
+    this.spawnTimer = this.time.addEvent({
+      delay: 8000,
+      callback: this.spawnWave,
+      callbackScope: this,
+      loop: true,
+    });
+
+    // 11. Регистрация забега
+    eventBus.emit(GameEventType.RUN_STARTED, {
+      runId: `run_${Date.now().toString(36)}`,
+    });
+
+    eventBus.emit(GameEventType.GOLD_UPDATED, {
+      totalGold: saveData.totalGold + this.runGold,
+      delta: 0,
+    });
+  }
+
+  public update(time: number, delta: number): void {
+    if (this.isGameOver) return;
+
+    // Спавн гусеницы по нажатию C (как в demo.html)
+    if (this.inputManager.consumeSpawnEnemy()) {
+      this.spawnCaterpillarAt();
+    }
+
+    // Обновление игрока
+    if (this.player && this.player.active) {
+      this.player.update(time, delta);
+    }
+
+    // Обновление целей преследования у врагов
+    this.enemies.getChildren().forEach((child) => {
+      const enemy = child as EnemyView;
+      if (enemy.active && this.player && this.player.active) {
+        enemy.setTarget(this.player.x, this.player.y);
+      }
+    });
+
+    // Обновление HUD
+    if (this.hud && this.player && this.player.active) {
+      this.hud.update(
+        this.playerStats.currentHp,
+        this.playerStats.maxHp,
+        this.player.getRegenRemaining(),
+        this.player.getDashCooldownRemaining(),
+        this.player.getCurrentWeapon(),
+        this.player.getChargeProgress(),
+        this.player.isBlockingState()
+      );
+    }
+  }
+
+  // ─── Отрисовка фона ───
+
+  private drawArenaGrid(width: number, height: number): void {
+    const bgGraphics = this.add.graphics().setDepth(0);
+    const size = BalanceConfig.arena.gridSize;
+
+    bgGraphics.fillStyle(0x141a23, 1);
+    bgGraphics.fillRect(0, 0, width, height);
+
+    bgGraphics.lineStyle(1, 0x1a2230, 1);
+    for (let x = 0; x <= width; x += size) {
+      bgGraphics.lineBetween(x, 0, x, height);
+    }
+    for (let y = 0; y <= height; y += size) {
+      bgGraphics.lineBetween(0, y, width, y);
+    }
+  }
+
+  // ─── Ящики и зелья ───
+
+  private spawnInitialCrates(): void {
+    const positions = [
+      { x: 180, y: 140 }, { x: 220, y: 140 }, { x: 200, y: 180 },
+      { x: 740, y: 140 }, { x: 780, y: 140 },
+      { x: 200, y: 380 }, { x: 760, y: 380 },
+      { x: 480, y: 120 }, { x: 480, y: 420 },
+    ];
+    positions.forEach((pos) => {
+      const crate = new CrateView(this, pos.x, pos.y);
+      this.crates.add(crate);
+    });
+  }
+
+  private spawnProjectile(shot: ShotEventData): void {
+    const projectile = new ProjectileView(this, shot.x, shot.y);
+    this.projectiles.add(projectile);
+    projectile.fire(shot.targetX, shot.targetY, shot.speed, shot.damage);
+  }
+
+  // ─── Коллизии ───
+
+  private setupCollisions(): void {
+    // 1. Снаряды vs Враги
     this.physics.add.overlap(
       this.projectiles,
       this.enemies,
@@ -105,6 +239,25 @@ export class GameScene extends Phaser.Scene {
       this
     );
 
+    // 2. Снаряды vs Ящики
+    this.physics.add.overlap(
+      this.projectiles,
+      this.crates,
+      this.onProjectileHitCrate as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback,
+      undefined,
+      this
+    );
+
+    // 3. Игрок vs Зелья (Подбор лута)
+    this.physics.add.overlap(
+      this.player,
+      this.potions,
+      this.onPlayerPickPotion as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback,
+      undefined,
+      this
+    );
+
+    // 4. Враги vs Игрок (Контактный урон с учетом блока)
     this.physics.add.overlap(
       this.player,
       this.enemies,
@@ -112,69 +265,7 @@ export class GameScene extends Phaser.Scene {
       undefined,
       this
     );
-
-    // 6. HUD
-    this.hud = new HUDView(this);
-    this.hud.updateHp(this.playerStats.currentHp, this.playerStats.maxHp);
-
-    // 7. Спавн первой волны через 1 секунду
-    this.time.delayedCall(1000, () => this.spawnWave());
-
-    // 8. Автоспавн волн каждые 6 секунд
-    this.spawnTimer = this.time.addEvent({
-      delay: 6000,
-      callback: this.spawnWave,
-      callbackScope: this,
-      loop: true,
-    });
-
-    // 9. Регистрируем забег
-    eventBus.emit(GameEventType.RUN_STARTED, {
-      runId: `run_${Date.now().toString(36)}`,
-    });
-
-    // Начальное обновление золота в HUD
-    eventBus.emit(GameEventType.GOLD_UPDATED, {
-      totalGold: saveData.totalGold + this.runGold,
-      delta: 0,
-    });
   }
-
-  public update(time: number, _delta: number): void {
-    if (this.isGameOver) return;
-
-    // Обновление игрока
-    if (this.player && this.player.active) {
-      this.player.update(time, _delta);
-    }
-
-    // Обновление целей врагов (преследование игрока)
-    this.enemies.getChildren().forEach((child) => {
-      const enemy = child as EnemyView;
-      if (enemy.active && this.player && this.player.active) {
-        enemy.setTarget(this.player.x, this.player.y);
-      }
-    });
-
-    // Стрельба
-    if (this.inputManager.isAttackPressed() && this.player.active) {
-      this.tryShoot(time);
-    }
-  }
-
-  // ─── Стрельба ───
-
-  private tryShoot(currentTime: number): void {
-    if (currentTime - this.lastShotTime < this.playerStats.attackCooldown) return;
-    this.lastShotTime = currentTime;
-
-    const pointerPos = this.inputManager.getPointerWorldPosition();
-    const projectile = new ProjectileView(this, this.player.x, this.player.y);
-    this.projectiles.add(projectile);
-    projectile.fire(pointerPos.x, pointerPos.y);
-  }
-
-  // ─── Коллизии ───
 
   private onProjectileHitEnemy(
     projectileObj: Phaser.Types.Physics.Arcade.GameObjectWithBody,
@@ -185,13 +276,15 @@ export class GameScene extends Phaser.Scene {
 
     if (!projectile.active || !enemy.active) return;
 
-    // Уничтожаем снаряд
+    const damageDealt = projectile.damage;
     projectile.destroy();
 
-    // Расчет урона (Ядро от Дев А)
-    const result = DamageCalculator.calculate(this.playerStats, enemy.stats);
+    // Создаем временные характеристики для расчета с учетом натяжения
+    const tempAttackerStats = this.playerStats.clone();
+    tempAttackerStats.damage = damageDealt;
 
-    // Событие урона -> JuiceEffects покажет цифры + тряску камеры
+    const result = DamageCalculator.calculate(tempAttackerStats, enemy.stats);
+
     eventBus.emit(GameEventType.DAMAGE_DEALT, {
       targetId: enemy.id,
       sourceId: 'player',
@@ -200,12 +293,85 @@ export class GameScene extends Phaser.Scene {
       result,
     });
 
-    // Визуальная обратная связь на враге
     enemy.playHitFeedback();
 
     if (result.isFatal) {
       this.onEnemyKilled(enemy);
     }
+  }
+
+  private onProjectileHitCrate(
+    projectileObj: Phaser.Types.Physics.Arcade.GameObjectWithBody,
+    crateObj: Phaser.Types.Physics.Arcade.GameObjectWithBody
+  ): void {
+    const projectile = projectileObj as unknown as ProjectileView;
+    const crate = crateObj as unknown as CrateView;
+
+    if (!projectile.active || !crate.active) return;
+
+    const crateX = crate.x;
+    const crateY = crate.y;
+    projectile.destroy();
+
+    const isDestroyed = crate.takeDamage(1);
+    if (isDestroyed) {
+      // 15% шанс выпадения лечебного зелья (из demo.html)
+      const dropPotion = Math.random() < BalanceConfig.loot.potionDropChance;
+      if (dropPotion) {
+        const potion = new PotionView(this, crateX, crateY);
+        this.potions.add(potion);
+      }
+
+      eventBus.emit(GameEventType.CRATE_DESTROYED, {
+        crateId: crate.id,
+        x: crateX,
+        y: crateY,
+        droppedPotion: dropPotion,
+      });
+
+      // Анимация разлета деревянных щепок
+      this.juice.showDust(crateX, crateY);
+      crate.destroy();
+    }
+  }
+
+  private onPlayerPickPotion(
+    _playerObj: Phaser.Types.Physics.Arcade.GameObjectWithBody,
+    potionObj: Phaser.Types.Physics.Arcade.GameObjectWithBody
+  ): void {
+    const potion = potionObj as unknown as PotionView;
+    if (!potion.active) return;
+
+    const { x, y } = potion;
+    potion.destroy();
+
+    // Применение зелья: +20 HP мгновенно + 10 сек регенерации (+1 HP/сек)
+    this.player.applyPotion();
+
+    eventBus.emit(GameEventType.POTION_COLLECTED, {
+      healAmount: BalanceConfig.loot.potionInstantHeal,
+      regenDuration: BalanceConfig.loot.potionRegenDuration,
+      x,
+      y,
+    });
+
+    // Всплывающий зеленый текст над игроком
+    const healText = this.add.text(this.player.x, this.player.y - 30, '+20 HP (Реген 10с)', {
+      fontSize: '15px',
+      color: '#68d391',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+
+    this.tweens.add({
+      targets: healText,
+      y: this.player.y - 65,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Power1',
+      onComplete: () => healText.destroy(),
+    });
   }
 
   private onEnemyHitPlayer(
@@ -217,10 +383,29 @@ export class GameScene extends Phaser.Scene {
     if (!enemy.active || !this.player.active) return;
     if (!enemy.canAttack(this.time.now)) return;
 
-    // Враг наносит урон игроку
+    // Если активен блок щитом палки — урон полностью блокируется!
+    if (this.player.isBlockingState()) {
+      const blockText = this.add.text(this.player.x, this.player.y - 25, '🛡️ ЗАБЛОКИРОВАНО', {
+        fontSize: '14px',
+        color: '#63b3ed',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 3,
+      }).setOrigin(0.5);
+
+      this.tweens.add({
+        targets: blockText,
+        y: this.player.y - 50,
+        alpha: 0,
+        duration: 600,
+        onComplete: () => blockText.destroy(),
+      });
+      return;
+    }
+
+    // Враг наносит контактный урон
     const result = DamageCalculator.calculate(enemy.stats, this.playerStats);
 
-    // Событие урона
     eventBus.emit(GameEventType.DAMAGE_DEALT, {
       targetId: 'player',
       sourceId: enemy.id,
@@ -228,9 +413,6 @@ export class GameScene extends Phaser.Scene {
       y: this.player.y - 20,
       result,
     });
-
-    // Обновляем HP-бар
-    this.hud.updateHp(this.playerStats.currentHp, this.playerStats.maxHp);
 
     // Вспышка на игроке
     this.player.setTint(0xff4444);
@@ -240,7 +422,6 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Тряска при ударе по игроку
     this.juice.shakeCamera(0.008, 100);
 
     if (result.isFatal) {
@@ -251,7 +432,6 @@ export class GameScene extends Phaser.Scene {
   // ─── Логика смерти ───
 
   private onEnemyKilled(enemy: EnemyView): void {
-    // Лут: случайное золото 1-5
     const goldDrop = Phaser.Math.Between(1, 5);
     this.runGold += goldDrop;
     this.runKills++;
@@ -270,14 +450,12 @@ export class GameScene extends Phaser.Scene {
       loot: { gold: goldDrop, exp: 10 },
     });
 
-    // Обновляем золото в HUD
     const saveData = SaveManager.load();
     eventBus.emit(GameEventType.GOLD_UPDATED, {
       totalGold: saveData.totalGold + this.runGold,
       delta: goldDrop,
     });
 
-    // Показать "+N gold" над трупом
     const goldText = this.add.text(enemy.x, enemy.y, `+${goldDrop} 🪙`, {
       fontSize: '16px',
       color: '#ffd700',
@@ -295,7 +473,6 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => goldText.destroy(),
     });
 
-    // Уничтожаем врага
     enemy.destroy();
   }
 
@@ -303,19 +480,16 @@ export class GameScene extends Phaser.Scene {
     if (this.isGameOver) return;
     this.isGameOver = true;
 
-    // Остановка спавна
     if (this.spawnTimer) {
       this.spawnTimer.destroy();
     }
 
-    // Сохраняем заработанное золото
     SaveManager.addGold(this.runGold);
     const saveData = SaveManager.load();
     saveData.statistics.runsCount++;
     saveData.statistics.enemiesKilled += this.runKills;
     SaveManager.save(saveData);
 
-    // Событие гейм-овера
     eventBus.emit(GameEventType.GAME_OVER, {
       score: this.runKills,
       goldEarned: this.runGold,
@@ -328,16 +502,24 @@ export class GameScene extends Phaser.Scene {
       y: this.player.y,
     });
 
-    // Анимация смерти
     this.player.setTint(0xff0000);
     this.player.setVelocity(0, 0);
     this.juice.shakeCamera(0.02, 300);
 
-    // Показать экран смерти
     this.time.delayedCall(800, () => this.showGameOverScreen());
   }
 
   // ─── Спавн врагов ───
+
+  private spawnCaterpillarAt(x?: number, y?: number): void {
+    const { width, height } = this.scale;
+    const spawnX = x ?? (Math.random() > 0.5 ? 80 : width - 80);
+    const spawnY = y ?? (Math.random() * (height - 140) + 70);
+
+    const enemy = new EnemyView(this, spawnX, spawnY);
+    this.enemies.add(enemy);
+    this.enemiesAlive++;
+  }
 
   private spawnWave(): void {
     if (this.isGameOver) return;
@@ -347,38 +529,36 @@ export class GameScene extends Phaser.Scene {
     const { width, height } = this.scale;
 
     for (let i = 0; i < count; i++) {
-      // Спавн за пределами экрана со случайной стороны
       let x: number, y: number;
       const side = Phaser.Math.Between(0, 3);
       const margin = 50;
 
       switch (side) {
-        case 0: // сверху
+        case 0:
           x = Phaser.Math.Between(margin, width - margin);
           y = -margin;
           break;
-        case 1: // справа
+        case 1:
           x = width + margin;
           y = Phaser.Math.Between(margin, height - margin);
           break;
-        case 2: // снизу
+        case 2:
           x = Phaser.Math.Between(margin, width - margin);
           y = height + margin;
           break;
-        default: // слева
+        default:
           x = -margin;
           y = Phaser.Math.Between(margin, height - margin);
           break;
       }
 
-      // Скорость врагов растет с волнами
       const speedBonus = Math.min(this.waveNumber * 5, 80);
       const enemy = new EnemyView(this, x, y, new CharacterStats({
-        maxHp: 4 + this.waveNumber,
-        currentHp: 4 + this.waveNumber,
-        damage: 5 + Math.floor(this.waveNumber * 0.5),
+        maxHp: BalanceConfig.enemy.caterpillar.hp + this.waveNumber,
+        currentHp: BalanceConfig.enemy.caterpillar.hp + this.waveNumber,
+        damage: BalanceConfig.enemy.caterpillar.contactDamage + Math.floor(this.waveNumber * 0.5),
         defense: 0,
-        moveSpeed: 75 + speedBonus,
+        moveSpeed: BalanceConfig.enemy.caterpillar.speed + speedBonus,
       }));
 
       this.enemies.add(enemy);
@@ -391,7 +571,6 @@ export class GameScene extends Phaser.Scene {
   private showGameOverScreen(): void {
     const { width, height } = this.scale;
 
-    // Затемнение
     const overlay = this.add.rectangle(
       width / 2, height / 2,
       width, height,
@@ -400,7 +579,6 @@ export class GameScene extends Phaser.Scene {
     overlay.setAlpha(0);
     this.tweens.add({ targets: overlay, alpha: 1, duration: 400 });
 
-    // Заголовок
     const title = this.add.text(width / 2, height / 3.5, '💀 ВЫ ПОГИБЛИ', {
       fontSize: '42px',
       color: '#e53e3e',
@@ -409,7 +587,6 @@ export class GameScene extends Phaser.Scene {
       strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 
-    // Статистика
     const statsText = [
       `⚔️ Убито врагов: ${this.runKills}`,
       `🪙 Золото за забег: ${this.runGold}`,
@@ -423,7 +600,6 @@ export class GameScene extends Phaser.Scene {
       lineSpacing: 10,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 
-    // Кнопка "В меню"
     const menuBtn = this.add.text(width / 2, height / 1.5, '🏠 В ГЛАВНОЕ МЕНЮ', {
       fontSize: '22px',
       color: '#48bb78',
@@ -443,7 +619,6 @@ export class GameScene extends Phaser.Scene {
       this.scene.start(SceneKeys.MAIN_MENU);
     });
 
-    // Кнопка "Заново"
     const retryBtn = this.add.text(width / 2, height / 1.25, '🔄 НАЧАТЬ ЗАНОВО', {
       fontSize: '22px',
       color: '#63b3ed',
@@ -463,7 +638,6 @@ export class GameScene extends Phaser.Scene {
       this.scene.restart();
     });
 
-    // Анимация появления
     title.setAlpha(0);
     this.tweens.add({ targets: title, alpha: 1, duration: 500, delay: 200 });
   }
